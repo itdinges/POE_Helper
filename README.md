@@ -10,6 +10,7 @@ Local-first Path of Exile 2 helper focused on filter management and future econo
 - How it works: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - ADR index: [docs/adr/README.md](docs/adr/README.md)
+- Review playbook: [docs/REVIEW_PLAYBOOK.md](docs/REVIEW_PLAYBOOK.md)
 
 ## Quickstart
 
@@ -38,6 +39,12 @@ Run tests:
 
 ```bash
 python -m pytest -q
+```
+
+Run branch review gate:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/review_gate.ps1
 ```
 
 Market snapshots are stored under data/market by default.

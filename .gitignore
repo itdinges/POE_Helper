@@ -16,3 +16,5 @@ dist/
 temp/
 data/market/
 data/logs/
+.coverage
+coverage.xml

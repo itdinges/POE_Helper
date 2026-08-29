@@ -9,7 +9,7 @@ from app.application.services import (
     list_filters,
 )
 from app.filter_manager import FilterManager
-from app.market import FlipResult, MarketOpportunity, RouteStep
+from app.market import FlipResult, RouteStep
 
 
 def test_initialize_filter_manager_success(tmp_path: Path) -> None:

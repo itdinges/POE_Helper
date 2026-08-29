@@ -38,6 +38,7 @@
 
 ## Phase 6: Test and Quality Gates
 
+- done: baseline review gate script for coverage, lint, security, and architecture docs presence
 - fixture-driven unit tests for parser and conversion logic
 - integration tests for file workflows and command outputs
 - optional live endpoint smoke tests behind explicit marker

@@ -13,8 +13,9 @@ POE Helper is a local-first helper for Path of Exile 2 with an initial focus on 
 3. [Architecture blueprint](ARCHITECTURE.md)
 4. [How it works](HOW_IT_WORKS.md)
 5. [Test strategy](TEST_STRATEGY.md)
-6. [Roadmap](ROADMAP.md)
-7. [Architectural Decision Records](adr/README.md)
+6. [Review playbook](REVIEW_PLAYBOOK.md)
+7. [Roadmap](ROADMAP.md)
+8. [Architectural Decision Records](adr/README.md)
 
 ## Scope
 

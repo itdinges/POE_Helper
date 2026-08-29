@@ -102,6 +102,8 @@ Out of scope:
 
 - Initial service/orchestration baseline tests implemented in tests/test_services.py.
 - Current result: 9 passed with pytest.
+- Branch readiness review gate script available at scripts/review_gate.ps1.
+- Full review gate status: passing (coverage + ruff + bandit + pip-audit + architecture docs check).
 
 ## Parked Feature
 

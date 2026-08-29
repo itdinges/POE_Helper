@@ -12,6 +12,8 @@ from app.contracts.responses import (
     TopEntry,
     VendorOpportunityView,
 )
+from app.domain.filter_profiles import build_score_profile_rules
+from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
 from app.market import (
     MarketClient,
@@ -55,6 +57,31 @@ def build_filter(manager: FilterManager, source: str | None, output: str | None,
     try:
         output_path = manager.create_managed_filter(source, output, profile)
     except FileNotFoundError as exc:
+        return FilterBuildResponse(ok=False, error=str(exc))
+
+    return FilterBuildResponse(ok=True, output_path=str(output_path))
+
+
+def build_score_profile_filter(
+    manager: FilterManager,
+    *,
+    source: str | None,
+    output: str | None,
+    scores: list[MarketItemScore],
+) -> FilterBuildResponse:
+    if not source or not output:
+        return FilterBuildResponse(ok=False, error="--build requires both --source and --output.")
+
+    try:
+        base_text = manager.read_filter(source)
+    except FileNotFoundError as exc:
+        return FilterBuildResponse(ok=False, error=str(exc))
+
+    profile_rules = build_score_profile_rules(scores)
+    merged_text = manager.merge_filter_with_rules(base_text, profile_rules, "score")
+    try:
+        output_path = manager.write_filter(output, merged_text)
+    except OSError as exc:
         return FilterBuildResponse(ok=False, error=str(exc))
 
     return FilterBuildResponse(ok=True, output_path=str(output_path))

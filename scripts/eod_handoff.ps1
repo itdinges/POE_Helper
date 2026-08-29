@@ -1,5 +1,5 @@
 param(
-    [string]$OutputPath = "docs/SESSION_HANDOFF.md",
+    [string]$OutputPath = "docs/operations/SESSION_HANDOFF.md",
     [string]$Notes = ""
 )
 
@@ -39,16 +39,16 @@ if (-not $head) {
 }
 
 $coverageSummary = "(not generated yet)"
-if (Test-Path "docs/COVERAGE_GAPS.md") {
-    $summaryLines = Get-Content "docs/COVERAGE_GAPS.md" | Select-String "Overall coverage|Total statements|Total missed"
+if (Test-Path "docs/reference/COVERAGE_GAPS.md") {
+    $summaryLines = Get-Content "docs/reference/COVERAGE_GAPS.md" | Select-String "Overall coverage|Total statements|Total missed"
     if ($summaryLines) {
         $coverageSummary = ($summaryLines | ForEach-Object { $_.Line.Trim() }) -join "`n"
     }
 }
 
 $nextPriorities = @()
-if (Test-Path "docs/PROJECT_CONTEXT.md") {
-    $lines = Get-Content "docs/PROJECT_CONTEXT.md"
+if (Test-Path "docs/operations/PROJECT_CONTEXT.md") {
+    $lines = Get-Content "docs/operations/PROJECT_CONTEXT.md"
     $start = ($lines | Select-String "^## Next Priorities").LineNumber
     if ($start) {
         for ($i = $start; $i -lt $lines.Count; $i++) {
@@ -103,8 +103,8 @@ $content += $notesText
 $content += ""
 $content += "## Quick Restart Checklist"
 $content += ""
-$content += "1. Read docs/SESSION_HANDOFF.md"
-$content += "2. Read docs/PROJECT_CONTEXT.md"
+$content += "1. Read docs/operations/SESSION_HANDOFF.md"
+$content += "2. Read docs/operations/PROJECT_CONTEXT.md"
 $content += "3. Run tests: python -m pytest -q"
 $content += "4. Run review gate when ready: powershell -ExecutionPolicy Bypass -File scripts/review_gate.ps1"
 

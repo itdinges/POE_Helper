@@ -46,9 +46,9 @@ if (-not $SkipSecurity) {
 if (-not $SkipArchitecture) {
     Run-Step "Architecture Docs Presence" {
         $required = @(
-            "docs/ARCHITECTURE.md",
-            "docs/TEST_STRATEGY.md",
-            "docs/PROJECT_CONTEXT.md",
+            "docs/architecture/ARCHITECTURE.md",
+            "docs/operations/TEST_STRATEGY.md",
+            "docs/operations/PROJECT_CONTEXT.md",
             "docs/adr/README.md"
         )
         foreach ($path in $required) {

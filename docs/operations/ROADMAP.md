@@ -24,7 +24,10 @@
 
 ## Phase 4: Data-Aware Suggestions
 
-- market snapshot ingestion
+- done: market snapshot ingestion
+- done: SQLite-backed historical persistence
+- done: normalizer + scoring pipeline for item recommendations
+- done: score-to-filter generation for profile-based managed output
 - route scanner for profitable flips
 - optional value thresholds for show/hide highlighting
 - profile presets for leveling, mapping, and crafting focus

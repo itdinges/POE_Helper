@@ -4,10 +4,12 @@ from pathlib import Path
 
 from app.application.services import (
     build_filter,
+    build_score_profile_filter,
     execute_market_workflow,
     initialize_filter_manager,
     list_filters,
 )
+from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
 from app.market import FlipResult, RouteStep
 
@@ -222,3 +224,33 @@ def test_execute_market_workflow_fetch_error(monkeypatch) -> None:
     assert response.ok is False
     assert response.error_stage == "fetch"
     assert response.error is not None
+
+
+def test_build_score_profile_filter_generates_managed_block(tmp_path: Path) -> None:
+    manager = FilterManager(filter_directory=str(tmp_path))
+    source_path = tmp_path / "base.filter"
+    source_path.write_text("#name:base\n\nShow\n    Class \"Currency\"\n", encoding="utf-8")
+
+    scores = [
+        MarketItemScore(
+            item_id="wisdom",
+            item_name="Scroll of Wisdom",
+            latest_value=0.3,
+            previous_value=0.2,
+            delta_percent=50.0,
+            vendor_value=0.05,
+            margin_chaos=0.25,
+            trend="up",
+            score=10.0,
+            recommendation="show",
+        )
+    ]
+
+    response = build_score_profile_filter(manager, source="base.filter", output="score_output.filter", scores=scores)
+
+    assert response.ok is True
+    output_path = tmp_path / "score_output.filter"
+    assert output_path.exists()
+    content = output_path.read_text(encoding="utf-8")
+    assert "# score profile" in content
+    assert "Scroll of Wisdom" in content

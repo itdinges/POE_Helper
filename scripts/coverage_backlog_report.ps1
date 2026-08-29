@@ -1,6 +1,6 @@
 param(
     [string]$CoverageXmlPath = "coverage.xml",
-    [string]$OutputPath = "docs/COVERAGE_GAPS.md"
+    [string]$OutputPath = "docs/reference/COVERAGE_GAPS.md"
 )
 
 $ErrorActionPreference = "Stop"

@@ -12,6 +12,7 @@ Local-first Path of Exile 2 helper focused on filter management and future econo
 - ADR index: [docs/adr/README.md](docs/adr/README.md)
 - Review playbook: [docs/REVIEW_PLAYBOOK.md](docs/REVIEW_PLAYBOOK.md)
 - Coverage gaps report: [docs/COVERAGE_GAPS.md](docs/COVERAGE_GAPS.md)
+- Handoff workflow: [docs/HANDOFF_WORKFLOW.md](docs/HANDOFF_WORKFLOW.md)
 
 ## Quickstart
 
@@ -52,6 +53,12 @@ Generate readable coverage backlog report:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/coverage_backlog_report.ps1
+```
+
+Generate end-of-day handoff summary:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/eod_handoff.ps1 -Notes "what changed and what is next"
 ```
 
 Market snapshots are stored under data/market by default.

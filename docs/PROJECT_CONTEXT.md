@@ -120,3 +120,10 @@ Out of scope:
 ## Update Rule
 
 When behavior, architecture, or roadmap changes, update this file in the same commit so future chats stay aligned.
+
+## Session Transition
+
+- End-of-day handoff command:
+	- powershell -ExecutionPolicy Bypass -File scripts/eod_handoff.ps1 -Notes "what changed and next actions"
+- Generated handoff file:
+	- docs/SESSION_HANDOFF.md

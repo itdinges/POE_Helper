@@ -15,8 +15,9 @@ POE Helper is a local-first helper for Path of Exile 2 with an initial focus on 
 5. [Test strategy](TEST_STRATEGY.md)
 6. [Review playbook](REVIEW_PLAYBOOK.md)
 7. [Coverage gaps report](COVERAGE_GAPS.md)
-8. [Roadmap](ROADMAP.md)
-9. [Architectural Decision Records](adr/README.md)
+8. [Handoff workflow](HANDOFF_WORKFLOW.md)
+9. [Roadmap](ROADMAP.md)
+10. [Architectural Decision Records](adr/README.md)
 
 ## Scope
 

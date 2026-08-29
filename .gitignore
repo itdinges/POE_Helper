@@ -18,3 +18,4 @@ data/market/
 data/logs/
 .coverage
 coverage.xml
+docs/SESSION_HANDOFF.md

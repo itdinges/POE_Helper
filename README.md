@@ -11,6 +11,7 @@ Local-first Path of Exile 2 helper focused on filter management and future econo
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - ADR index: [docs/adr/README.md](docs/adr/README.md)
 - Review playbook: [docs/REVIEW_PLAYBOOK.md](docs/REVIEW_PLAYBOOK.md)
+- Coverage gaps report: [docs/COVERAGE_GAPS.md](docs/COVERAGE_GAPS.md)
 
 ## Quickstart
 
@@ -45,6 +46,12 @@ Run branch review gate:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/review_gate.ps1
+```
+
+Generate readable coverage backlog report:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/coverage_backlog_report.ps1
 ```
 
 Market snapshots are stored under data/market by default.

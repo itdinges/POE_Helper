@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "name": "orb-of-alchemy",
+      "vendor_chaos_cost": 0.35
+    },
+    {
+      "name": "Orb of Augmentation",
+      "vendor_chaos_cost": 0.02
+    }
+  ]
+}

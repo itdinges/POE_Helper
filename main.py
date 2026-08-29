@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
-from app.filter_manager import FilterManager
+from app.application.services import build_filter, execute_market_workflow, initialize_filter_manager, list_filters
+from app.observability import configure_logging, tail_log_file
+
+
+log = logging.getLogger("poe-helper")
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,47 +30,200 @@ def parse_args() -> argparse.Namespace:
         choices=["mapping", "crafting", "league_start"],
         help="Rule profile to append in managed section",
     )
+    parser.add_argument("--market", action="store_true", help="Fetch poe.ninja exchange data")
+    parser.add_argument(
+        "--league",
+        type=str,
+        default="Runes of Aldur",
+        help="POE2 league name for market fetch",
+    )
+    parser.add_argument(
+        "--market-type",
+        type=str,
+        default="Currency",
+        help="poe.ninja market type, for example Currency",
+    )
+    parser.add_argument(
+        "--market-out-dir",
+        type=str,
+        default="data/market",
+        help="Directory where raw market snapshots are stored",
+    )
+    parser.add_argument(
+        "--market-limit",
+        type=int,
+        default=10,
+        help="How many top market rows to print",
+    )
+    parser.add_argument(
+        "--vendor-file",
+        type=str,
+        default=None,
+        help="Optional JSON file with vendor chaos costs for comparison",
+    )
+    parser.add_argument(
+        "--min-margin",
+        type=float,
+        default=0.0,
+        help="Minimum chaos margin to show in vendor comparison",
+    )
+    parser.add_argument("--convert", action="store_true", help="Convert currency amount using market chaos-equivalent rates")
+    parser.add_argument("--from-currency", type=str, default=None, help="Source currency id or name")
+    parser.add_argument("--to-currency", type=str, default=None, help="Target currency id or name")
+    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion or route simulation")
+    parser.add_argument(
+        "--flip-route-file",
+        type=str,
+        default=None,
+        help="Optional JSON file with multi-step vendor route definitions",
+    )
+    parser.add_argument(
+        "--flip-route-name",
+        type=str,
+        default=None,
+        help="Name of route to evaluate from the route file",
+    )
+    parser.add_argument("--tail-logs", action="store_true", help="Print recent backend logs")
+    parser.add_argument("--follow-logs", action="store_true", help="Stream backend logs continuously")
+    parser.add_argument("--log-lines", type=int, default=40, help="Number of log lines to show for --tail-logs")
+    parser.add_argument("--log-level", type=str, default="INFO", help="Log level: DEBUG, INFO, WARNING, ERROR")
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default="data/logs/poe_helper.log",
+        help="File path for backend log output",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    try:
-        manager = FilterManager(
-            filter_directory=args.filter_dir,
-            create_if_missing=args.filter_dir is None,
-        )
-    except (FileNotFoundError, NotADirectoryError) as exc:
-        print(str(exc))
+    log_file_path = configure_logging(log_level=args.log_level, log_file=args.log_file)
+    log.info("Command started")
+
+    if args.tail_logs or args.follow_logs:
+        log.info("Log tail requested")
+        tail_log_file(str(log_file_path), lines=args.log_lines, follow=args.follow_logs)
         return
 
+    if args.market:
+        log.info("Market workflow started", extra={"league": args.league, "market_type": args.market_type})
+        response = execute_market_workflow(
+            league=args.league,
+            market_type=args.market_type,
+            market_out_dir=args.market_out_dir,
+            market_limit=args.market_limit,
+            vendor_file=args.vendor_file,
+            min_margin=args.min_margin,
+            convert=args.convert,
+            from_currency=args.from_currency,
+            to_currency=args.to_currency,
+            amount=args.amount,
+            flip_route_file=args.flip_route_file,
+            flip_route_name=args.flip_route_name,
+        )
+        if not response.ok and response.error and response.error_stage == "fetch":
+            print(response.error)
+            return
+
+        print("POE Helper market fetch complete.")
+        print(f"Snapshot written: {response.snapshot_path}")
+
+        if not response.top_entries:
+            print("No market rows available in payload.")
+            return
+
+        print(f"Top {len(response.top_entries)} entries by chaos value:")
+        for row in response.top_entries:
+            print(f"- {row.name}: {row.chaos_value:.3f} chaos")
+
+        if args.vendor_file:
+            if not response.ok and response.error and response.error_stage == "vendor":
+                print(response.error)
+                return
+            if response.vendor_no_opportunities:
+                log.info("No vendor opportunities found")
+                print("No vendor comparison opportunities found for this snapshot.")
+                return
+
+            print(f"Vendor comparison opportunities (margin >= {args.min_margin:.3f} chaos):")
+            for row in response.vendor_opportunities[: args.market_limit]:
+                print(
+                    f"- {row.name}: market={row.market_chaos_value:.3f}, "
+                    f"vendor={row.vendor_chaos_cost:.3f}, margin={row.margin_chaos:.3f} chaos"
+                )
+
+        if args.convert:
+            if not response.ok and response.error and response.error_stage == "convert":
+                print(response.error)
+                return
+            if response.conversion is None:
+                return
+
+            print(
+                f"Conversion: {response.conversion.amount:.3f} {response.conversion.from_currency} ~= "
+                f"{response.conversion.converted_amount:.3f} {response.conversion.to_currency}"
+            )
+
+        if args.flip_route_file or args.flip_route_name:
+            if not response.ok and response.error and response.error_stage == "flip":
+                print(response.error)
+                if response.available_routes:
+                    print(f"Available routes: {', '.join(response.available_routes)}")
+                return
+            if response.flip_simulation is None:
+                return
+
+            print(f"Flip route: {response.flip_simulation.route_name}")
+            for note in response.flip_simulation.step_notes:
+                print(f"- {note}")
+            print(
+                f"Result: start={response.flip_simulation.start_amount:.3f} {response.flip_simulation.start_currency}, "
+                f"end={response.flip_simulation.end_amount:.3f} {response.flip_simulation.end_currency}"
+            )
+            print(
+                f"Chaos PnL: cost={response.flip_simulation.cost_chaos:.3f}, "
+                f"revenue={response.flip_simulation.revenue_chaos:.3f}, "
+                f"profit={response.flip_simulation.profit_chaos:.3f}, "
+                f"roi={response.flip_simulation.roi_percent:.2f}%"
+            )
+        return
+
+    init_result, manager = initialize_filter_manager(args.filter_dir)
+    if not init_result.ok or manager is None:
+        log.warning("Filter manager initialization failed", extra={"error": init_result.error})
+        print(init_result.error)
+        return
+
+    log.info("Filter workflow started", extra={"directory": init_result.filter_directory})
     print("POE Helper started.")
-    print(f"Filter directory: {manager.filter_directory}")
+    print(f"Filter directory: {init_result.filter_directory}")
 
     if args.list:
-        filters = manager.list_filters()
-        if not filters:
-            print(f"No filter files found in: {manager.filter_directory}")
+        list_result = list_filters(manager)
+        if not list_result.ok and list_result.error:
+            print(list_result.error)
+            return
+        if not list_result.filters:
+            print(f"No filter files found in: {list_result.filter_directory}")
             return
         print("Available filters:")
-        for name in filters:
+        for name in list_result.filters:
             print(f"- {name}")
         return
 
     if args.build:
-        if not args.source or not args.output:
-            print("--build requires both --source and --output.")
+        build_result = build_filter(manager, args.source, args.output, args.profile)
+        if not build_result.ok and build_result.error:
+            print(build_result.error)
+            if build_result.error.startswith("Filter not found:"):
+                print("Tip: run with --list to see available source filenames for this directory.")
             return
-        try:
-            output = manager.create_managed_filter(args.source, args.output, args.profile)
-        except FileNotFoundError as exc:
-            print(str(exc))
-            print("Tip: run with --list to see available source filenames for this directory.")
-            return
-        print(f"Managed filter written: {output}")
+        log.info("Managed filter written", extra={"output": build_result.output_path, "profile": args.profile})
+        print(f"Managed filter written: {build_result.output_path}")
         return
 
-    print("Tip: use --list to discover filters or --build to generate a managed filter.")
+    print("Tip: use --list or --build for filters, or --market for poe.ninja snapshots.")
 
 
 if __name__ == "__main__":

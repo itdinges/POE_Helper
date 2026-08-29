@@ -1,64 +1,52 @@
 # POE Helper
 
-A small Python project for building a Path of Exile 2 helper focused on practical tools such as:
+Local-first Path of Exile 2 helper focused on filter management and future economy/crafting assistance.
 
-- loot filter management
-- market-aware rule suggestions
-- crafting value helpers
-- build progression reminders
+## Start Here
 
-## Current focus
+- Project docs: [docs/README.md](docs/README.md)
+- Project handoff: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
+- Goals: [docs/GOALS.md](docs/GOALS.md)
+- How it works: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)
+- Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+- ADR index: [docs/adr/README.md](docs/adr/README.md)
 
-The first milestone is a local filter helper that can:
-
-- read a POE 2 online filter file
-- merge in custom rules
-- save a new filter into the Windows `OnlineFilters` folder
-- support multiple profiles for different builds or league phases
-
-## Windows filter location
-
-Path of Exile 2 online filters are typically stored under:
-
-`C:\Users\<you>\Documents\My Games\Path of Exile 2\OnlineFilters`
-
-## Project structure
-
-- `app/` - Python package for helpers and logic
-- `main.py` - entry point
-- `requirements.txt` - Python dependencies
-
-## Getting started
+## Quickstart
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
-```
-
-## CLI usage
-
-List available filter files in the POE 2 OnlineFilters folder:
-
-```bash
 python main.py --list
 ```
 
-Build a managed filter by appending a profile-specific rule section:
+## Current Commands
 
 ```bash
-python main.py --build --source ERIx8msj --output ERIx8msj_managed --profile mapping
+python main.py --list
+python main.py --build --source ERlx8msj --output ERlx8msj_managed --profile league_start
+python main.py --list --dir .\temp
+python main.py --market --league "Runes of Aldur" --market-type Currency
+python main.py --market --league "Runes of Aldur" --market-type Currency --vendor-file config/vendor_prices.example.json --min-margin 0.05
+python main.py --market --league "Runes of Aldur" --market-type Currency --convert --from-currency wisdom --to-currency chaos --amount 10000
+python main.py --market --league "Runes of Aldur" --market-type Currency --flip-route-file config/flip_routes.example.json --flip-route-name wisdom_to_aug --amount 10000
+python main.py --tail-logs --log-lines 80
+python main.py --follow-logs --log-level DEBUG
 ```
 
-Note: POE 2 online filters may be plain text files without a file extension.
+Run tests:
 
-Available profiles:
+```bash
+python -m pytest -q
+```
 
-- mapping
-- crafting
-- league_start
+Market snapshots are stored under data/market by default.
 
-## Notes
+Notes:
 
-This project is intentionally scoped to a legal, non-cheat helper for personal use and progression support.
+- Conversion and flip simulations are chaos-normalized from the same snapshot.
+- Route steps are defined in JSON and can model vendor chains.
+- If an end currency is not in the market payload (example: portal in some snapshots), route simulation reports it explicitly.
+- Runtime logs are written to data/logs/poe_helper.log by default.
+
+This project is intentionally scoped to legal helper tooling and does not attempt to modify game behavior.

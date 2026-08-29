@@ -1,0 +1,26 @@
+{
+  "routes": [
+    {
+      "name": "wisdom_to_aug",
+      "steps": [
+        {
+          "from": "wisdom",
+          "to": "aug",
+          "from_amount": 40,
+          "to_amount": 1
+        }
+      ]
+    },
+    {
+      "name": "wisdom_to_portal_example",
+      "steps": [
+        {
+          "from": "wisdom",
+          "to": "portal",
+          "from_amount": 3,
+          "to_amount": 1
+        }
+      ]
+    }
+  ]
+}

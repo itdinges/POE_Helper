@@ -48,6 +48,18 @@ class ConversionView:
 
 
 @dataclass
+class CurrencyRecommendationView:
+    source_currency: str
+    target_currency: str
+    target_name: str
+    amount: float
+    converted_amount: float
+    value_chaos: float
+    value_divine: float
+    value_exalt: float | None = None
+
+
+@dataclass
 class FlipSimulationView:
     route_name: str
     start_currency: str
@@ -71,5 +83,6 @@ class MarketWorkflowResponse:
     vendor_opportunities: list[VendorOpportunityView] = field(default_factory=list)
     vendor_no_opportunities: bool = False
     conversion: ConversionView | None = None
+    recommendations: list[CurrencyRecommendationView] = field(default_factory=list)
     flip_simulation: FlipSimulationView | None = None
     available_routes: list[str] = field(default_factory=list)

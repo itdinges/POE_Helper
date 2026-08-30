@@ -175,6 +175,56 @@ def convert_currency_amount(
     return (amount * from_price) / to_price
 
 
+def build_currency_recommendations(
+    payload: dict[str, Any],
+    *,
+    source_currency: str,
+    amount: float,
+    max_results: int = 5,
+) -> list[dict[str, Any]]:
+    if amount <= 0:
+        raise ValueError("amount must be greater than zero")
+
+    rows = parse_market_rows(payload)
+    price_map = build_price_lookup(rows)
+    source_price = _lookup_price(price_map, source_currency)
+    if source_price is None:
+        raise ValueError(f"Currency not found in market snapshot: {source_currency}")
+
+    divine_price = _lookup_price(price_map, "divine")
+    if divine_price is None or divine_price <= 0:
+        raise ValueError("Divine Orb is required to compute Divine-equivalent values")
+
+    recommendations: list[dict[str, Any]] = []
+    for row in rows:
+        if _normalize_key(row.id) == _normalize_key(source_currency):
+            continue
+
+        target_price = row.chaos_value
+        if target_price <= 0:
+            continue
+
+        converted_amount = (amount * source_price) / target_price
+        final_chaos_value = converted_amount * target_price
+        value_divine = final_chaos_value / divine_price
+
+        recommendations.append(
+            {
+                "source_currency": source_currency,
+                "target_currency": row.id,
+                "target_name": row.name,
+                "amount": amount,
+                "converted_amount": converted_amount,
+                "value_chaos": final_chaos_value,
+                "value_divine": value_divine,
+                "value_exalt": final_chaos_value / _lookup_price(price_map, "exalt") if _lookup_price(price_map, "exalt") else None,
+            }
+        )
+
+    recommendations.sort(key=lambda item: item["value_divine"], reverse=True)
+    return recommendations[: max(1, max_results)]
+
+
 def load_flip_routes(route_file: str) -> dict[str, list[RouteStep]]:
     path = Path(route_file).expanduser().resolve()
     raw = json.loads(path.read_text(encoding="utf-8"))

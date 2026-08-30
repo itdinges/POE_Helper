@@ -9,6 +9,7 @@ from app.market import (
     FlipResult,
     MarketClient,
     RouteStep,
+    build_currency_recommendations,
     build_price_lookup,
     compare_vendor_to_market,
     convert_currency_amount,
@@ -66,6 +67,33 @@ def test_compare_vendor_to_market_by_name_and_id() -> None:
 
     assert [row.name for row in opportunities] == ["Orb of Augmentation", "Scroll of Wisdom"]
     assert opportunities[0].margin_chaos > opportunities[1].margin_chaos
+
+
+def test_build_currency_recommendations_ranks_by_divine_equivalent() -> None:
+    payload = {
+        "core": {
+            "items": [
+                {"id": "divine", "name": "Divine Orb"},
+                {"id": "exalt", "name": "Exalted Orb"},
+                {"id": "chaos", "name": "Chaos Orb"},
+            ],
+            "rates": {"chaos": 10.0},
+            "primary": "divine",
+            "secondary": "chaos",
+        },
+        "lines": [
+            {"id": "divine", "primaryValue": 1.0},
+            {"id": "exalt", "primaryValue": 0.2},
+            {"id": "chaos", "primaryValue": 0.1},
+        ],
+    }
+
+    recommendations = build_currency_recommendations(payload, source_currency="chaos", amount=100.0, max_results=3)
+
+    assert recommendations[0]["target_currency"] == "divine"
+    assert recommendations[0]["converted_amount"] == pytest.approx(10.0)
+    assert recommendations[0]["value_divine"] == pytest.approx(10.0)
+    assert recommendations[1]["target_currency"] == "exalt"
 
 
 def test_load_vendor_chaos_costs_formats_and_errors(tmp_path: Path) -> None:

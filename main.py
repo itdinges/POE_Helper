@@ -10,6 +10,15 @@ from app.observability import configure_logging, tail_log_file
 log = logging.getLogger("poe-helper")
 
 
+def _format_dutch_number(value: float, decimals: int = 3) -> str:
+    formatted = format(value, f",.{decimals}f")
+    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def _format_dutch_amount(value: float, decimals: int = 3) -> str:
+    return _format_dutch_number(value, decimals)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POE 2 helper for local filter management.")
     parser.add_argument("--list", action="store_true", help="List available filter files")
@@ -68,9 +77,11 @@ def parse_args() -> argparse.Namespace:
         help="Minimum chaos margin to show in vendor comparison",
     )
     parser.add_argument("--convert", action="store_true", help="Convert currency amount using market chaos-equivalent rates")
+    parser.add_argument("--recommend", action="store_true", help="Rank alternative currency conversions and show final Divine-equivalent value")
     parser.add_argument("--from-currency", type=str, default=None, help="Source currency id or name")
+    parser.add_argument("--source-currency", type=str, default=None, help="Source currency for recommendation ranking")
     parser.add_argument("--to-currency", type=str, default=None, help="Target currency id or name")
-    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion or route simulation")
+    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion, recommendation, or route simulation")
     parser.add_argument(
         "--flip-route-file",
         type=str,
@@ -121,6 +132,8 @@ def main() -> None:
             amount=args.amount,
             flip_route_file=args.flip_route_file,
             flip_route_name=args.flip_route_name,
+            recommend=args.recommend,
+            source_currency=args.source_currency or args.from_currency,
         )
         if not response.ok and response.error and response.error_stage == "fetch":
             print(response.error)
@@ -135,7 +148,7 @@ def main() -> None:
 
         print(f"Top {len(response.top_entries)} entries by chaos value:")
         for row in response.top_entries:
-            print(f"- {row.name}: {row.chaos_value:.3f} chaos")
+            print(f"- {row.name}: {_format_dutch_amount(row.chaos_value)} chaos")
 
         if args.vendor_file:
             if not response.ok and response.error and response.error_stage == "vendor":
@@ -146,11 +159,11 @@ def main() -> None:
                 print("No vendor comparison opportunities found for this snapshot.")
                 return
 
-            print(f"Vendor comparison opportunities (margin >= {args.min_margin:.3f} chaos):")
+            print(f"Vendor comparison opportunities (margin >= {_format_dutch_amount(args.min_margin)} chaos):")
             for row in response.vendor_opportunities[: args.market_limit]:
                 print(
-                    f"- {row.name}: market={row.market_chaos_value:.3f}, "
-                    f"vendor={row.vendor_chaos_cost:.3f}, margin={row.margin_chaos:.3f} chaos"
+                    f"- {row.name}: market={_format_dutch_amount(row.market_chaos_value)}, "
+                    f"vendor={_format_dutch_amount(row.vendor_chaos_cost)}, margin={_format_dutch_amount(row.margin_chaos)} chaos"
                 )
 
         if args.convert:
@@ -161,9 +174,25 @@ def main() -> None:
                 return
 
             print(
-                f"Conversion: {response.conversion.amount:.3f} {response.conversion.from_currency} ~= "
-                f"{response.conversion.converted_amount:.3f} {response.conversion.to_currency}"
+                f"Conversion: {_format_dutch_amount(response.conversion.amount)} {response.conversion.from_currency} ~= "
+                f"{_format_dutch_amount(response.conversion.converted_amount)} {response.conversion.to_currency}"
             )
+
+        if args.recommend:
+            if not response.ok and response.error and response.error_stage == "recommend":
+                print(response.error)
+                return
+            if not response.recommendations:
+                print("No recommendation opportunities found for the selected source currency.")
+                return
+
+            print(f"Currency conversion overview from {args.source_currency or args.from_currency}:")
+            for rec in response.recommendations:
+                exalt_value = rec.value_exalt if rec.value_exalt is not None else 0.0
+                print(
+                    f"- {rec.target_name}: {_format_dutch_amount(rec.converted_amount)} {rec.target_currency} "
+                    f"(~ {_format_dutch_number(rec.value_divine, 6)} divine / {_format_dutch_amount(rec.value_chaos)} chaos / {_format_dutch_amount(exalt_value)} exalt)"
+                )
 
         if args.flip_route_file or args.flip_route_name:
             if not response.ok and response.error and response.error_stage == "flip":
@@ -178,14 +207,14 @@ def main() -> None:
             for note in response.flip_simulation.step_notes:
                 print(f"- {note}")
             print(
-                f"Result: start={response.flip_simulation.start_amount:.3f} {response.flip_simulation.start_currency}, "
-                f"end={response.flip_simulation.end_amount:.3f} {response.flip_simulation.end_currency}"
+                f"Result: start={_format_dutch_amount(response.flip_simulation.start_amount)} {response.flip_simulation.start_currency}, "
+                f"end={_format_dutch_amount(response.flip_simulation.end_amount)} {response.flip_simulation.end_currency}"
             )
             print(
-                f"Chaos PnL: cost={response.flip_simulation.cost_chaos:.3f}, "
-                f"revenue={response.flip_simulation.revenue_chaos:.3f}, "
-                f"profit={response.flip_simulation.profit_chaos:.3f}, "
-                f"roi={response.flip_simulation.roi_percent:.2f}%"
+                f"Chaos PnL: cost={_format_dutch_amount(response.flip_simulation.cost_chaos)}, "
+                f"revenue={_format_dutch_amount(response.flip_simulation.revenue_chaos)}, "
+                f"profit={_format_dutch_amount(response.flip_simulation.profit_chaos)}, "
+                f"roi={_format_dutch_number(response.flip_simulation.roi_percent, 2)}%"
             )
         return
 

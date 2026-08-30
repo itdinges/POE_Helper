@@ -37,6 +37,19 @@ Keep progression and modifier-driven items intentionally separate from the defau
 
 These belong in a progression-focused category rather than the default economy feed because their value is highly contextual and usually tied to build goals, progression cadence, and modifier filtering.
 
+## Gameplay Loop Goal
+
+Define the project around the actual POE2 play rhythm for a steady player, not a speedrunner:
+
+1. Play the campaign and collect as much ground-loot currency as possible.
+2. While playing, keep fetching market snapshots to build historical context.
+3. Use that accumulated market history to prepare for the post-campaign Currency Exchange phase.
+4. Once the Currency Exchange unlocks, use the new market data to evaluate conversions and liquidity.
+5. Rank opportunities by affordability, repeatability, and capital efficiency rather than maximum absolute value.
+6. Keep a long-term market record so the helper improves as the player progresses, without assuming a rushed economy.
+
+This loop matches the real user experience: the goal is to build value steadily over time and only use the market system when it becomes relevant for the current phase of progression.
+
 ## Equipment Goal
 
 Keep equipment support intentionally build-focused rather than universal:
@@ -58,6 +71,19 @@ This makes equipment a build helper feature, not a default market-fetch feature.
 - add tests for directory resolution and managed block replacement
 - validate the default universal fetch categories against real market payloads
 - define the optional build-aware equipment workflow separate from the default economy pipeline
+- research whether the in-game Market Ratio can be incorporated as a useful trading signal, even if it may not be feasible within the current time box
+
+## Market Ratio Research Goal
+
+Investigate whether the Currency Exchange Market Ratio can be used to improve trade quality and bulk-margin analysis.
+
+This goal is intentionally exploratory:
+
+- the feature looks extremely useful for identifying stronger exchange opportunities and competitor pressure
+- it may not be possible to access through the available public data sources or within the current implementation window
+- if it is not feasible, the project should still document the idea and keep it as a future enhancement rather than blocking the core economy workflow
+
+This keeps the project honest: the feature may be valuable, but it should only be pursued if it fits the time budget and data availability.
 
 ## Product Goals
 

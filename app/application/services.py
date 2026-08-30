@@ -6,6 +6,7 @@ from datetime import datetime
 from app.adapters.market_adapter import normalize_market_rows_for_store
 from app.contracts.responses import (
     ConversionView,
+    CurrencyRecommendationView,
     FilterBuildResponse,
     FilterInitResponse,
     FilterListResponse,
@@ -21,6 +22,7 @@ from app.filter_manager import FilterManager
 from app.infrastructure.market_store import SQLiteMarketStore
 from app.market import (
     MarketClient,
+    build_currency_recommendations,
     compare_vendor_to_market,
     convert_currency_amount,
     load_flip_routes,
@@ -108,6 +110,34 @@ def build_score_profile_filter(
     return FilterBuildResponse(ok=True, output_path=str(output_path))
 
 
+def analyze_currency_recommendations(
+    payload: dict,
+    *,
+    source_currency: str,
+    amount: float,
+    max_results: int = 5,
+) -> list[CurrencyRecommendationView]:
+    recommendations = build_currency_recommendations(
+        payload,
+        source_currency=source_currency,
+        amount=amount,
+        max_results=max_results,
+    )
+    return [
+        CurrencyRecommendationView(
+            source_currency=item["source_currency"],
+            target_currency=item["target_currency"],
+            target_name=item["target_name"],
+            amount=item["amount"],
+            converted_amount=item["converted_amount"],
+            value_chaos=item["value_chaos"],
+            value_divine=item["value_divine"],
+            value_exalt=item["value_exalt"],
+        )
+        for item in recommendations
+    ]
+
+
 def execute_market_workflow(
     *,
     league: str,
@@ -122,6 +152,8 @@ def execute_market_workflow(
     amount: float,
     flip_route_file: str | None,
     flip_route_name: str | None,
+    recommend: bool = False,
+    source_currency: str | None = None,
 ) -> MarketWorkflowResponse:
     config = load_market_type_config(MARKET_CONFIG_PATH)
     fetch_types = _resolve_market_types(market_type, config)
@@ -231,6 +263,37 @@ def execute_market_workflow(
             amount=amount,
             converted_amount=converted,
         )
+
+    if recommend:
+        if not source_currency:
+            return MarketWorkflowResponse(
+                ok=False,
+                error="--recommend requires --source-currency.",
+                error_stage="recommend",
+                snapshot_path=primary_snapshot_path,
+                top_entries=top_entries,
+                vendor_opportunities=response.vendor_opportunities,
+                vendor_no_opportunities=response.vendor_no_opportunities,
+                conversion=response.conversion,
+            )
+        try:
+            response.recommendations = analyze_currency_recommendations(
+                primary_payload,
+                source_currency=source_currency,
+                amount=amount,
+                max_results=market_limit,
+            )
+        except ValueError as exc:
+            return MarketWorkflowResponse(
+                ok=False,
+                error=f"Recommendation failed: {exc}",
+                error_stage="recommend",
+                snapshot_path=primary_snapshot_path,
+                top_entries=top_entries,
+                vendor_opportunities=response.vendor_opportunities,
+                vendor_no_opportunities=response.vendor_no_opportunities,
+                conversion=response.conversion,
+            )
 
     if flip_route_file or flip_route_name:
         if not flip_route_file or not flip_route_name:

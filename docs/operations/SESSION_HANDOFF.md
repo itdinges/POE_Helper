@@ -1,26 +1,32 @@
 ﻿# Session Handoff
 
-Generated: 2026-08-29 23:01:58
+Generated: 2026-08-30 22:42:57
 
 ## Repo State
 
 - Branch: dev/start
-- HEAD: cb5a47b
+- HEAD: c9c0417
 
 ### Working Tree
 
 ```text
-(clean working tree)
+ M app/application/services.py
+ M app/contracts/responses.py
+ M app/market.py
+ M docs/architecture/GOALS.md
+ M main.py
+ M tests/test_market_parsing.py
+?? docs/domain/
 ```
 
 ### Recent Commits
 
 ```text
+c9c0417 checkpoint: live SQLite market data populated for Currency and Fragments
+2a23706 checkpoint: config-driven market fetch and doc alignment
 cb5a47b docs: restructure project docs and establish product scope baseline
 12f18d8 Add end-of-day handoff workflow and generator script
 f826f0c Add market and observability tests with coverage backlog reporting
-94e80b5 Add review gate and service-path testing baseline
-5663ea5 Architecture foundation: services/contracts, observability, market workflows, docs, and tests
 ```
 
 ## Coverage Snapshot
@@ -34,7 +40,10 @@ f826f0c Add market and observability tests with coverage backlog reporting
 
 ## Next Priorities
 
-Next session should start by validating the actual base fetch data flow against the default market types, since that is the next real milestone.
+1. Add dry-run mode and profile listing command.
+2. Move profile rules to config file for easier editing.
+3. Expand unit and integration tests around lifecycle and data-quality edge cases.
+4. Prepare adapter split for optional authenticated inventory module.
 
 ## Operator Notes
 

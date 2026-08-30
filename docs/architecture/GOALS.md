@@ -12,7 +12,7 @@ Deliver a reliable local filter workflow for POE2:
 
 ## Core Market Goal
 
-Build a stable default fetch layer for broadly useful economy data:
+Build a stable default fetch layer for broadly useful economy data from a config-driven catalog:
 
 - Currency
 - Fragments
@@ -22,9 +22,20 @@ Build a stable default fetch layer for broadly useful economy data:
 - Runes
 - Liquid Emotions
 - Catalyst
-- Essences as a secondary utility category
+- Essences
 
-These should be the default fetch set because they provide broad utility across many play patterns and are much more stable than a generic equipment feed.
+These are the default universal types because they provide broad utility across many play patterns and remain more stable than a generic equipment feed.
+
+The app should keep fetch configuration explicit and editable in a single config file rather than hard-coded in the workflow. This is the backbone of a stable default market layer.
+
+## Progression Category Goal
+
+Keep progression and modifier-driven items intentionally separate from the default utility fetch set:
+
+- Waystones
+- Tablets
+
+These belong in a progression-focused category rather than the default economy feed because their value is highly contextual and usually tied to build goals, progression cadence, and modifier filtering.
 
 ## Equipment Goal
 

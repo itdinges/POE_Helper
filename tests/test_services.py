@@ -9,6 +9,7 @@ from app.application.services import (
     initialize_filter_manager,
     list_filters,
 )
+from app.domain.market_types import get_default_market_types, load_market_type_config
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
 from app.market import FlipResult, RouteStep
@@ -224,6 +225,57 @@ def test_execute_market_workflow_fetch_error(monkeypatch) -> None:
     assert response.ok is False
     assert response.error_stage == "fetch"
     assert response.error is not None
+
+
+def test_execute_market_workflow_fetches_default_configured_types(monkeypatch, tmp_path) -> None:
+    config = load_market_type_config("config/market_types.json")
+    expected_types = get_default_market_types("config/market_types.json")
+    calls: list[str] = []
+
+    class FakeMarketClient:
+        def fetch_overview(self, league: str, market_type: str):
+            calls.append(market_type)
+            return {"lines": [{"id": "oracle", "primaryValue": 1.0}]}
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
+            return Path(output_directory) / f"{market_type}.json"
+
+    class FakeStore:
+        def __init__(self, db_path):
+            self.rows = []
+            self.db_path = db_path
+
+        def sync_market_types(self, config, *, source="config"):
+            return []
+
+        def save_market_rows(self, rows):
+            self.rows.extend(rows)
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
+    monkeypatch.setattr("app.application.services.SQLiteMarketStore", FakeStore)
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="all",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+    )
+
+    assert response.ok is True
+    assert set(calls) == set(expected_types)
+    assert set(calls).issubset(set(config.all_types))
+    assert response.snapshot_path is not None
 
 
 def test_build_score_profile_filter_generates_managed_block(tmp_path: Path) -> None:

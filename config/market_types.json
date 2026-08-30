@@ -1,0 +1,25 @@
+{
+  "default_types": [
+    "Currency",
+    "Fragments",
+    "Lineage Gems",
+    "Soul Cores",
+    "Idols",
+    "Runes",
+    "Liquid Emotions",
+    "Catalyst",
+    "Essences"
+  ],
+  "optional_types": [
+    "Waystones",
+    "Tablets",
+    "Gems",
+    "Maps"
+  ],
+  "progression_types": [
+    "Waystones",
+    "Tablets"
+  ],
+  "equipment_types": [],
+  "disabled_types": []
+}

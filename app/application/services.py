@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
+from app.adapters.market_adapter import normalize_market_rows_for_store
 from app.contracts.responses import (
     ConversionView,
     FilterBuildResponse,
@@ -13,8 +15,10 @@ from app.contracts.responses import (
     VendorOpportunityView,
 )
 from app.domain.filter_profiles import build_score_profile_rules
+from app.domain.market_types import get_default_market_types, load_market_type_config
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
+from app.infrastructure.market_store import SQLiteMarketStore
 from app.market import (
     MarketClient,
     compare_vendor_to_market,
@@ -102,6 +106,53 @@ def execute_market_workflow(
     flip_route_file: str | None,
     flip_route_name: str | None,
 ) -> MarketWorkflowResponse:
+    if market_type.lower() == "all":
+        config = load_market_type_config("config/market_types.json")
+        fetch_types = get_default_market_types("config/market_types.json")
+        if not fetch_types:
+            return MarketWorkflowResponse(ok=False, error="No configured default market types available.", error_stage="fetch")
+
+        store = SQLiteMarketStore(db_path="data/market/poe_market.db")
+        store.sync_market_types(config)
+
+        snapshots: list[str] = []
+        top_entries: list[TopEntry] = []
+
+        for configured_type in fetch_types:
+            try:
+                client = MarketClient()
+                payload = client.fetch_overview(league, configured_type)
+                snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
+                snapshots.append(str(snapshot_path))
+
+                rows = normalize_market_rows_for_store(
+                    payload,
+                    league=league,
+                    market_type=configured_type,
+                    fetched_at=datetime.now(),
+                )
+                store.save_market_rows(rows)
+
+                top_entries.extend(
+                    TopEntry(name=name, chaos_value=chaos_value)
+                    for name, chaos_value in summarize_market(payload, limit=market_limit)
+                )
+            except Exception as exc:  # pragma: no cover - network/runtime errors
+                log.exception("Market fetch failed for configured type %s", configured_type)
+                store.close()
+                return MarketWorkflowResponse(
+                    ok=False,
+                    error=f"Market fetch failed for {configured_type}: {exc}",
+                    error_stage="fetch",
+                )
+
+        store.close()
+        return MarketWorkflowResponse(
+            ok=True,
+            snapshot_path=snapshots[0] if snapshots else None,
+            top_entries=top_entries,
+        )
+
     client = MarketClient()
     try:
         payload = client.fetch_overview(league, market_type)

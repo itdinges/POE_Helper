@@ -31,13 +31,14 @@ In scope:
 
 - local filter file discovery and managed output generation
 - local market snapshot and normalization workflows
-- broad utility market fetches such as Currency and core progression items
+- config-driven default utility market fetches such as Currency, Fragments, Lineage Gems, Soul Cores, Idols, Runes, Liquid Emotions, Catalyst, and Essences
+- progression/modifier-driven categories such as Waystones and Tablets tracked separately from the default utility layer
 - build-aware equipment research as a contextual helper feature
 
 Out of scope:
 
 - direct game interaction or automation
-- generic equipment-only market scraping for all item types
+- generic equipment-only market scraping for all item types as a default market layer
 - anti-cheat or memory-based behavior
 
 ## Documentation intent

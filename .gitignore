@@ -16,6 +16,7 @@ dist/
 temp/
 data/market/
 data/logs/
+data/raw/
 .coverage
 coverage.xml
 docs/SESSION_HANDOFF.md

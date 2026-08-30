@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from app.domain.market_types import MarketTypeConfig
+
 
 @dataclass(slots=True)
 class MarketRowRecord:
@@ -17,6 +19,13 @@ class MarketRowRecord:
     primary_value: float
     fetched_at: datetime
     vendor_value: float | None = None
+
+
+@dataclass(slots=True)
+class MarketTypeCatalogRecord:
+    category: str
+    name: str
+    enabled: bool = True
 
 
 class SQLiteMarketStore:
@@ -64,9 +73,56 @@ class SQLiteMarketStore:
             """
         )
         self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_type_catalog (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(category, name)
+            )
+            """
+        )
+        self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_market_rows_latest ON market_rows(league, market_type, item_id, fetched_at)"
         )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_market_type_catalog_category ON market_type_catalog(category, enabled)"
+        )
         self._conn.commit()
+
+    def sync_market_types(self, config: MarketTypeConfig, *, source: str = "config") -> list[MarketTypeCatalogRecord]:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        entries: list[MarketTypeCatalogRecord] = []
+        for entry in config.entries():
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO market_type_catalog (category, name, enabled)
+                VALUES (?, ?, ?)
+                """,
+                (entry.category, entry.name, int(entry.enabled)),
+            )
+            entries.append(MarketTypeCatalogRecord(category=entry.category, name=entry.name, enabled=entry.enabled))
+        self._conn.commit()
+        return entries
+
+    def get_market_types(self, *, category: str | None = None) -> list[str]:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        if category is None:
+            rows = self._conn.execute(
+                "SELECT name FROM market_type_catalog WHERE enabled = 1 ORDER BY category, name"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT name FROM market_type_catalog WHERE category = ? AND enabled = 1 ORDER BY name",
+                (category,),
+            ).fetchall()
+
+        return [row["name"] for row in rows]
 
     def save_snapshot_record(self, *, league: str, market_type: str, source_file: str, fetched_at: datetime) -> int:
         if self._conn is None:

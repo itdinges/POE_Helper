@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--market-type",
         type=str,
         default="Currency",
-        help="poe.ninja market type, for example Currency",
+        help="poe.ninja market type, 'all', or a comma-separated list such as Currency,Fragments",
     )
     parser.add_argument(
         "--market-out-dir",

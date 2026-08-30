@@ -33,29 +33,14 @@ Implemented:
 
 ## Main CLI Flows
 
-Local temp testing:
+See [docs/commands/README.md](../commands/README.md) for the current grouped command list.
 
-- .\\.venv\\Scripts\\python.exe .\\main.py --list --dir .\\temp
-- .\\.venv\\Scripts\\python.exe .\\main.py --build --dir .\\temp --source ERlx8msj --output ERlx8msj_managed --profile league_start
+The most important starter flows are:
 
-Default live folder usage:
-
-- .\\.venv\\Scripts\\python.exe .\\main.py --list
-- .\\.venv\\Scripts\\python.exe .\\main.py --build --source ERlx8msj --output ERlx8msj_managed --profile league_start
-
-Market data usage:
-
-- .\\.venv\\Scripts\\python.exe .\\main.py --market --league "Runes of Aldur" --market-type all
-- .\\.venv\\Scripts\\python.exe .\\main.py --market --league "Runes of Aldur" --market-type Currency
-- .\\.venv\\Scripts\\python.exe .\\main.py --market --league "Runes of Aldur" --market-type Currency --vendor-file config/vendor_prices.example.json --min-margin 0.05
-- .\\.venv\\Scripts\\python.exe .\\main.py --market --league "Runes of Aldur" --market-type Currency --convert --from-currency wisdom --to-currency chaos --amount 10000
-- .\\.venv\\Scripts\\python.exe .\\main.py --market --league "Runes of Aldur" --market-type Currency --flip-route-file config/flip_routes.example.json --flip-route-name wisdom_to_aug --amount 10000
-- .\\.venv\\Scripts\\python.exe .\\scripts\\market_catalog_helper.py
-
-Observability usage:
-
-- .\\.venv\\Scripts\\python.exe .\\main.py --tail-logs --log-lines 80
-- .\\.venv\\Scripts\\python.exe .\\main.py --follow-logs --log-level DEBUG
+- filter management in a local temp folder for safer testing
+- market fetch with `Currency,Fragments` for the first small validation slice
+- `all` for the config-backed default utility fetch set
+- reset script for clearing the local SQLite database during dev/test
 
 ## Architecture Snapshot
 

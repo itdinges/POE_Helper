@@ -58,50 +58,16 @@ python main.py --list
 
 ## Current Commands
 
-```bash
-python main.py --list
-python main.py --build --source ERlx8msj --output ERlx8msj_managed --profile league_start
-python main.py --list --dir .\temp
-python main.py --market --league "Runes of Aldur" --market-type Currency
-python main.py --market --league "Runes of Aldur" --market-type Currency --vendor-file config/vendor_prices.example.json --min-margin 0.05
-python main.py --market --league "Runes of Aldur" --market-type Currency --convert --from-currency wisdom --to-currency chaos --amount 10000
-python main.py --market --league "Runes of Aldur" --market-type Currency --flip-route-file config/flip_routes.example.json --flip-route-name wisdom_to_aug --amount 10000
-python main.py --tail-logs --log-lines 80
-python main.py --follow-logs --log-level DEBUG
-```
+See [docs/commands/README.md](docs/commands/README.md) for the grouped command list.
 
-Run tests:
-
-```bash
-python -m pytest -q
-```
-
-Run branch review gate:
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/review_gate.ps1
-```
-
-Generate readable coverage backlog report:
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/coverage_backlog_report.ps1
-```
-
-Generate end-of-day handoff summary:
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/eod_handoff.ps1 -Notes "what changed and what is next"
-```
-
-Market snapshots are stored under data/market by default.
+Market snapshots are stored under `data/market` by default.
 
 Notes:
 
 - Conversion and flip simulations are chaos-normalized from the same snapshot.
 - Route steps are defined in JSON and can model vendor chains.
-- If an end currency is not in the market payload (example: portal in some snapshots), route simulation reports it explicitly.
-- Runtime logs are written to data/logs/poe_helper.log by default.
+- If an end currency is not in the market payload, route simulation reports it explicitly.
+- Runtime logs are written to `data/logs/poe_helper.log` by default.
 - The project intentionally keeps equipment work contextual and build-aware rather than treating all gear as a generic market feed.
 
 ## Documentation index

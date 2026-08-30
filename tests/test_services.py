@@ -251,7 +251,10 @@ def test_execute_market_workflow_fetches_default_configured_types(monkeypatch, t
         def save_market_rows(self, rows):
             self.rows.extend(rows)
 
-        def close(self):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
             return None
 
     monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
@@ -276,6 +279,62 @@ def test_execute_market_workflow_fetches_default_configured_types(monkeypatch, t
     assert set(calls) == set(expected_types)
     assert set(calls).issubset(set(config.all_types))
     assert response.snapshot_path is not None
+
+
+def test_execute_market_workflow_fetches_multiple_requested_types(monkeypatch, tmp_path) -> None:
+    calls: list[str] = []
+
+    class FakeMarketClient:
+        def fetch_overview(self, league: str, market_type: str):
+            calls.append(market_type)
+            return {"lines": [{"id": market_type.lower(), "primaryValue": 1.0}]}
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
+            return Path(output_directory) / f"{market_type}.json"
+
+    class FakeStore:
+        def __init__(self, db_path):
+            self.rows = []
+            self.db_path = db_path
+
+        def sync_market_types(self, config, *, source="config"):
+            return []
+
+        def save_market_rows(self, rows):
+            self.rows.extend(rows)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
+    monkeypatch.setattr("app.application.services.SQLiteMarketStore", FakeStore)
+    monkeypatch.setattr(
+        "app.application.services.summarize_market",
+        lambda payload, limit=10: [(payload["lines"][0]["id"], 1.0)],
+    )
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="Currency,Fragments",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+    )
+
+    assert response.ok is True
+    assert calls == ["Currency", "Fragments"]
+    assert response.snapshot_path == str(tmp_path / "Currency.json")
+    assert len(response.top_entries) == 2
 
 
 def test_build_score_profile_filter_generates_managed_block(tmp_path: Path) -> None:

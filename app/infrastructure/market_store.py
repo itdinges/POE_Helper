@@ -173,6 +173,21 @@ class SQLiteMarketStore:
         )
         self._conn.commit()
 
+    def reset_database(self) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        self._conn.executescript(
+            """
+            DELETE FROM market_rows;
+            DELETE FROM market_snapshots;
+            DELETE FROM market_type_catalog;
+            DELETE FROM sqlite_sequence
+            WHERE name IN ('market_rows', 'market_snapshots', 'market_type_catalog');
+            """
+        )
+        self._conn.commit()
+
     def get_latest_market_rows(self, league: str, market_type: str) -> list[MarketRowRecord]:
         if self._conn is None:
             raise RuntimeError("Database connection is closed")

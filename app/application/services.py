@@ -15,7 +15,7 @@ from app.contracts.responses import (
     VendorOpportunityView,
 )
 from app.domain.filter_profiles import build_score_profile_rules
-from app.domain.market_types import get_default_market_types, load_market_type_config
+from app.domain.market_types import MarketTypeConfig, load_market_type_config
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
 from app.infrastructure.market_store import SQLiteMarketStore
@@ -31,6 +31,23 @@ from app.market import (
 
 
 log = logging.getLogger("poe-helper.application")
+MARKET_CONFIG_PATH = "config/market_types.json"
+MARKET_DB_PATH = "data/market/poe_market.db"
+
+
+def _resolve_market_types(market_type: str, config: MarketTypeConfig) -> list[str]:
+    normalized = market_type.strip()
+    if not normalized:
+        return []
+
+    if normalized.lower() == "all":
+        return [item for item in config.default_types if item not in config.disabled_types]
+
+    if "," in normalized:
+        requested_types = [item.strip() for item in normalized.split(",") if item.strip()]
+        return list(dict.fromkeys(requested_types))
+
+    return [normalized]
 
 
 def initialize_filter_manager(filter_dir: str | None) -> tuple[FilterInitResponse, FilterManager | None]:
@@ -106,24 +123,23 @@ def execute_market_workflow(
     flip_route_file: str | None,
     flip_route_name: str | None,
 ) -> MarketWorkflowResponse:
-    if market_type.lower() == "all":
-        config = load_market_type_config("config/market_types.json")
-        fetch_types = get_default_market_types("config/market_types.json")
-        if not fetch_types:
-            return MarketWorkflowResponse(ok=False, error="No configured default market types available.", error_stage="fetch")
+    config = load_market_type_config(MARKET_CONFIG_PATH)
+    fetch_types = _resolve_market_types(market_type, config)
+    if not fetch_types:
+        return MarketWorkflowResponse(ok=False, error="No market types were requested.", error_stage="fetch")
 
-        store = SQLiteMarketStore(db_path="data/market/poe_market.db")
+    top_entries: list[TopEntry] = []
+    primary_payload: dict | None = None
+    primary_snapshot_path: str | None = None
+
+    with SQLiteMarketStore(db_path=MARKET_DB_PATH) as store:
         store.sync_market_types(config)
-
-        snapshots: list[str] = []
-        top_entries: list[TopEntry] = []
 
         for configured_type in fetch_types:
             try:
                 client = MarketClient()
                 payload = client.fetch_overview(league, configured_type)
                 snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
-                snapshots.append(str(snapshot_path))
 
                 rows = normalize_market_rows_for_store(
                     payload,
@@ -133,48 +149,26 @@ def execute_market_workflow(
                 )
                 store.save_market_rows(rows)
 
+                if primary_payload is None:
+                    primary_payload = payload
+                    primary_snapshot_path = str(snapshot_path)
+
                 top_entries.extend(
                     TopEntry(name=name, chaos_value=chaos_value)
                     for name, chaos_value in summarize_market(payload, limit=market_limit)
                 )
             except Exception as exc:  # pragma: no cover - network/runtime errors
                 log.exception("Market fetch failed for configured type %s", configured_type)
-                store.close()
                 return MarketWorkflowResponse(
                     ok=False,
                     error=f"Market fetch failed for {configured_type}: {exc}",
                     error_stage="fetch",
                 )
 
-        store.close()
-        return MarketWorkflowResponse(
-            ok=True,
-            snapshot_path=snapshots[0] if snapshots else None,
-            top_entries=top_entries,
-        )
+    if primary_payload is None:
+        return MarketWorkflowResponse(ok=False, error="No market payloads were fetched.", error_stage="fetch")
 
-    client = MarketClient()
-    try:
-        payload = client.fetch_overview(league, market_type)
-    except Exception as exc:  # pragma: no cover - network/runtime errors
-        log.exception("Market fetch failed")
-        return MarketWorkflowResponse(ok=False, error=f"Market fetch failed: {exc}", error_stage="fetch")
-
-    snapshot_path = client.save_snapshot(payload, market_out_dir, league, market_type)
-
-    top_entries = [TopEntry(name=name, chaos_value=chaos_value) for name, chaos_value in summarize_market(payload, limit=market_limit)]
-    if not top_entries:
-        return MarketWorkflowResponse(
-            ok=True,
-            snapshot_path=str(snapshot_path),
-            top_entries=[],
-        )
-
-    response = MarketWorkflowResponse(
-        ok=True,
-        snapshot_path=str(snapshot_path),
-        top_entries=top_entries,
-    )
+    response = MarketWorkflowResponse(ok=True, snapshot_path=primary_snapshot_path, top_entries=top_entries)
 
     if vendor_file:
         try:
@@ -184,11 +178,11 @@ def execute_market_workflow(
                 ok=False,
                 error=f"Vendor file load failed: {exc}",
                 error_stage="vendor",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
             )
 
-        opportunities = compare_vendor_to_market(payload, vendor_costs, min_margin_chaos=min_margin)
+        opportunities = compare_vendor_to_market(primary_payload, vendor_costs, min_margin_chaos=min_margin)
         response.vendor_opportunities = [
             VendorOpportunityView(
                 name=row.name,
@@ -208,14 +202,14 @@ def execute_market_workflow(
                 ok=False,
                 error="--convert requires --from-currency and --to-currency.",
                 error_stage="convert",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,
             )
         try:
             converted = convert_currency_amount(
-                payload,
+                primary_payload,
                 amount=amount,
                 from_currency=from_currency,
                 to_currency=to_currency,
@@ -225,7 +219,7 @@ def execute_market_workflow(
                 ok=False,
                 error=f"Conversion failed: {exc}",
                 error_stage="convert",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,
@@ -244,7 +238,7 @@ def execute_market_workflow(
                 ok=False,
                 error="Flip simulation requires both --flip-route-file and --flip-route-name.",
                 error_stage="flip",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,
@@ -258,7 +252,7 @@ def execute_market_workflow(
                 ok=False,
                 error=f"Route file load failed: {exc}",
                 error_stage="flip",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,
@@ -271,7 +265,7 @@ def execute_market_workflow(
                 ok=False,
                 error=f"Route not found: {flip_route_name}",
                 error_stage="flip",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,
@@ -281,7 +275,7 @@ def execute_market_workflow(
 
         try:
             result = simulate_flip_route(
-                payload,
+                primary_payload,
                 route_name=flip_route_name,
                 steps=steps,
                 start_amount=amount,
@@ -291,7 +285,7 @@ def execute_market_workflow(
                 ok=False,
                 error=f"Flip simulation failed: {exc}",
                 error_stage="flip",
-                snapshot_path=str(snapshot_path),
+                snapshot_path=primary_snapshot_path,
                 top_entries=top_entries,
                 vendor_opportunities=response.vendor_opportunities,
                 vendor_no_opportunities=response.vendor_no_opportunities,

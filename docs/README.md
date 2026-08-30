@@ -24,6 +24,7 @@ This folder holds the project background, architecture notes, runtime flow, and 
 ### Reference
 
 12. [ADR index](adr/README.md)
+13. [Commands](commands/README.md)
 
 ## Scope summary
 

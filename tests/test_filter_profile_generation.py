@@ -53,4 +53,8 @@ def test_build_score_profile_rules_groups_by_recommendation() -> None:
     assert "Low Value Currency" in joined
     assert "Show" in joined
     assert "Hide" in joined
-    assert "Watch" in joined
+    assert "Watch" not in joined
+    assert '    BaseType "Scroll of Wisdom"' in joined
+    assert '    BaseType "Low Value Currency"' in joined
+    assert '# watch entries omitted from generated filter output' in joined
+    assert '    # watch: "Orb of Augmentation"' in joined

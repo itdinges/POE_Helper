@@ -215,13 +215,17 @@ def build_currency_recommendations(
                 "target_name": row.name,
                 "amount": amount,
                 "converted_amount": converted_amount,
+                "target_price": target_price,
                 "value_chaos": final_chaos_value,
                 "value_divine": value_divine,
                 "value_exalt": final_chaos_value / _lookup_price(price_map, "exalt") if _lookup_price(price_map, "exalt") else None,
             }
         )
 
-    recommendations.sort(key=lambda item: item["value_divine"], reverse=True)
+    recommendations.sort(
+        key=lambda item: (item["converted_amount"], item["target_price"]),
+        reverse=True,
+    )
     return recommendations[: max(1, max_results)]
 
 

@@ -2,6 +2,8 @@
 
 This folder holds the project background, architecture notes, runtime flow, and operational guidance.
 
+Project subagents live in `.cursor/agents/` and are indexed in [AGENTS.md](../AGENTS.md) at the repo root.
+
 ## Reading order
 
 ### Overview
@@ -21,10 +23,14 @@ This folder holds the project background, architecture notes, runtime flow, and 
 10. [Coverage gaps report](reference/COVERAGE_GAPS.md)
 11. [SQLite inspection guide](reference/SQL_INSPECTION_GUIDE.md)
 
+### Reviews
+
+12. [Reviews](reviews/README.md) — dated constructive reviews (product, alignment, gaps)
+
 ### Reference
 
-12. [ADR index](adr/README.md)
-13. [Commands](commands/README.md)
+13. [ADR index](adr/README.md)
+14. [Commands](commands/README.md)
 
 ## Scope summary
 

@@ -88,13 +88,40 @@ def test_build_currency_recommendations_ranks_by_units_received() -> None:
         ],
     }
 
-    recommendations = build_currency_recommendations(payload, source_currency="chaos", amount=100.0, max_results=3)
+    recommendations = build_currency_recommendations(
+        payload,
+        source_currency="chaos",
+        amount=100.0,
+        previous_prices={"chaos": 1.0, "divine": 20.0, "exalt": 10.0},
+        holdings={"Exalted Orb": 5.0},
+        trend_signals={
+            "exalt": {
+                "trend_1h_percent": -1.0,
+                "trend_2h_percent": 2.0,
+                "trend_12h_percent": 3.5,
+                "trend_24h_percent": 8.0,
+                "short_term_reversal": "bearish_reversal",
+            }
+        },
+        min_change_percent=0.5,
+        min_trade_units=1.0,
+        max_results=3,
+    )
 
     assert recommendations[0]["target_currency"] == "exalt"
+    assert recommendations[0]["market_type"] == "Currency"
     assert recommendations[0]["converted_amount"] == pytest.approx(20.0)
     assert recommendations[1]["target_currency"] == "divine"
-    assert recommendations[1]["converted_amount"] == pytest.approx(3.3333333333333335)
+    assert recommendations[1]["converted_amount"] == pytest.approx(3.0)
     assert recommendations[0]["value_divine"] == pytest.approx(100.0 / 30.0)
+    assert recommendations[0]["action"] == "buy"
+    assert recommendations[0]["actionable_action"] == "buy"
+    assert recommendations[0]["owned_target_units"] == pytest.approx(5.0)
+    assert recommendations[0]["whole_units_owned"] == 5
+    assert recommendations[0]["spent_source_units"] == pytest.approx(100.0)
+    assert recommendations[0]["leftover_source_units"] == pytest.approx(0.0)
+    assert recommendations[0]["trend_1h_percent"] == pytest.approx(-1.0)
+    assert recommendations[0]["short_term_reversal"] == "bearish_reversal"
 
 
 def test_load_vendor_chaos_costs_formats_and_errors(tmp_path: Path) -> None:

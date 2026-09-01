@@ -33,12 +33,20 @@ python main.py --market --league "Runes of Aldur" --market-type all
 Other market helpers:
 
 ```bash
-python main.py --market --league "Runes of Aldur" --market-type Currency --vendor-file config/vendor_prices.example.json --min-margin 0.05
-python main.py --market --league "Runes of Aldur" --market-type Currency --convert --from-currency wisdom --to-currency chaos --amount 10000
-python main.py --market --league "Runes of Aldur" --market-type Currency --flip-route-file config/flip_routes.example.json --flip-route-name wisdom_to_aug --amount 10000
-python scripts/fetch_market_starter.ps1
-python scripts/market_catalog_helper.py
+python main.py --market --league "Runes of Aldur" --market-type Currency --recommend --holdings-file config/holdings.example.json
 ```
+
+Manual holdings file format example:
+
+```json
+{
+	"Divine Orb": 12,
+	"Exalted Orb": 48,
+	"Chaos Orb": 840
+}
+```
+
+Use `config/holdings.example.json` as a starter template.
 
 Starter sample collection:
 
@@ -73,3 +81,7 @@ powershell -ExecutionPolicy Bypass -File scripts/eod_handoff.ps1 -Notes "what ch
 - `Currency,Fragments` is the small starter slice for validating that the fetch, normalization, and SQLite write path all work together.
 - `all` expands to the config-backed default utility catalog.
 - Resetting the local database is safe for dev and test use because it only clears the local SQLite file contents.
+- Holdings are currently manual JSON input only. Live stash/account sync with PoE2 authentication is intentionally out of scope until a stable API path is available.
+- Recommendation mode defaults to `--source-currency exalt` and uses whole-unit trade sizing for buy/sell actions.
+- Recommendation runs now auto-reuse the latest snapshot when it is <= 1 hour old, and auto-refetch when the latest snapshot is older than 1 hour.
+- Recommendation output is focused on two tables: sell candidates (only items you own) and buy candidates (only items you can afford), both ordered by trend.

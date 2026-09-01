@@ -49,6 +49,7 @@ class ConversionView:
 
 @dataclass
 class CurrencyRecommendationView:
+    market_type: str
     source_currency: str
     target_currency: str
     target_name: str
@@ -56,7 +57,39 @@ class CurrencyRecommendationView:
     converted_amount: float
     value_chaos: float
     value_divine: float
+    spent_source_units: float = 0.0
+    leftover_source_units: float = 0.0
+    action: str = "hold"
+    current_ratio: float | None = None
+    previous_ratio: float | None = None
+    ratio_change_percent: float | None = None
+    affordable_units: float = 0.0
+    whole_units_affordable: int = 0
+    is_affordable: bool = False
+    owned_target_units: float = 0.0
+    whole_units_owned: int = 0
+    can_sell: bool = False
+    actionable_action: str = "hold"
+    trend_1h_percent: float | None = None
+    trend_2h_percent: float | None = None
+    trend_12h_percent: float | None = None
+    trend_24h_percent: float | None = None
+    short_term_reversal: str | None = None
+    trend_alignment: str | None = None
     value_exalt: float | None = None
+
+
+@dataclass
+class TrendSignalView:
+    market_type: str
+    target_currency: str
+    target_name: str
+    short_term_reversal: str
+    trend_1h_percent: float | None = None
+    trend_2h_percent: float | None = None
+    trend_12h_percent: float | None = None
+    trend_24h_percent: float | None = None
+    latest_chaos_value: float | None = None
 
 
 @dataclass
@@ -79,10 +112,13 @@ class MarketWorkflowResponse:
     error: str | None = None
     error_stage: str | None = None
     snapshot_path: str | None = None
+    market_data_fetched_at: str | None = None
+    market_data_source: str | None = None
     top_entries: list[TopEntry] = field(default_factory=list)
     vendor_opportunities: list[VendorOpportunityView] = field(default_factory=list)
     vendor_no_opportunities: bool = False
     conversion: ConversionView | None = None
     recommendations: list[CurrencyRecommendationView] = field(default_factory=list)
+    trend_highlights: list[TrendSignalView] = field(default_factory=list)
     flip_simulation: FlipSimulationView | None = None
     available_routes: list[str] = field(default_factory=list)

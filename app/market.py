@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,7 +59,12 @@ class MarketClient:
         self.timeout_seconds = timeout_seconds
 
     def fetch_overview(self, league: str, market_type: str) -> dict[str, Any]:
-        log.info("Fetching market overview", extra={"league": league, "market_type": market_type})
+        log.info(
+            "Fetching market overview (league=%s, type=%s)",
+            league,
+            market_type,
+            extra={"league": league, "market_type": market_type},
+        )
         response = requests.get(
             self.base_url,
             params={"league": league, "type": market_type},
@@ -68,7 +74,13 @@ class MarketClient:
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("Unexpected market payload format: expected JSON object")
-        log.info("Market overview fetched", extra={"line_count": len(payload.get("lines", [])) if isinstance(payload.get("lines"), list) else 0})
+        log.info(
+            "Market overview fetched (league=%s, type=%s, lines=%s)",
+            league,
+            market_type,
+            len(payload.get("lines", [])) if isinstance(payload.get("lines"), list) else 0,
+            extra={"line_count": len(payload.get("lines", [])) if isinstance(payload.get("lines"), list) else 0},
+        )
         return payload
 
     def save_snapshot(self, payload: dict[str, Any], output_directory: str, league: str, market_type: str) -> Path:
@@ -80,7 +92,13 @@ class MarketClient:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         file_path = output_dir / f"{league_slug}_{type_slug}_{timestamp}.json"
         file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        log.info("Market snapshot saved", extra={"path": str(file_path)})
+        log.info(
+            "Market snapshot saved (league=%s, type=%s, path=%s)",
+            league,
+            market_type,
+            str(file_path),
+            extra={"path": str(file_path)},
+        )
         return file_path
 
 
@@ -178,8 +196,19 @@ def convert_currency_amount(
 def build_currency_recommendations(
     payload: dict[str, Any],
     *,
+    market_type: str = "Currency",
     source_currency: str,
     amount: float,
+    previous_prices: dict[str, float] | None = None,
+    holdings: dict[str, float] | None = None,
+    trend_signals: dict[str, dict[str, float | str | None]] | None = None,
+    min_change_percent: float = 0.5,
+    min_trade_units: float = 1.0,
+    whole_unit_trades: bool = True,
+    source_price_override: float | None = None,
+    previous_source_price_override: float | None = None,
+    divine_price_override: float | None = None,
+    exalt_price_override: float | None = None,
     max_results: int = 5,
 ) -> list[dict[str, Any]]:
     if amount <= 0:
@@ -189,11 +218,17 @@ def build_currency_recommendations(
     price_map = build_price_lookup(rows)
     source_price = _lookup_price(price_map, source_currency)
     if source_price is None:
+        source_price = source_price_override
+    if source_price is None:
         raise ValueError(f"Currency not found in market snapshot: {source_currency}")
 
     divine_price = _lookup_price(price_map, "divine")
+    if divine_price is None:
+        divine_price = divine_price_override
     if divine_price is None or divine_price <= 0:
         raise ValueError("Divine Orb is required to compute Divine-equivalent values")
+
+    normalized_holdings = _normalize_previous_prices(holdings)
 
     recommendations: list[dict[str, Any]] = []
     for row in rows:
@@ -204,26 +239,101 @@ def build_currency_recommendations(
         if target_price <= 0:
             continue
 
-        converted_amount = (amount * source_price) / target_price
-        final_chaos_value = converted_amount * target_price
+        converted_amount_raw = (amount * source_price) / target_price
+        whole_units_affordable = int(math.floor(converted_amount_raw))
+        tradable_units = float(whole_units_affordable) if whole_unit_trades else converted_amount_raw
+        final_chaos_value = tradable_units * target_price
         value_divine = final_chaos_value / divine_price
+        current_ratio = target_price / source_price if source_price > 0 else None
+        spent_source_units = tradable_units * current_ratio if current_ratio is not None else 0.0
+        leftover_source_units = max(0.0, amount - spent_source_units)
+
+        previous_ratio: float | None = None
+        ratio_change_percent: float | None = None
+        if previous_prices:
+            previous_source_price = _lookup_price(previous_prices, source_currency)
+            if previous_source_price is None:
+                previous_source_price = previous_source_price_override
+            previous_target_price = _lookup_price(previous_prices, row.id)
+            if previous_source_price and previous_target_price and previous_source_price > 0:
+                previous_ratio = previous_target_price / previous_source_price
+                if previous_ratio != 0:
+                    ratio_change_percent = ((current_ratio - previous_ratio) / previous_ratio) * 100.0
+
+        action = "hold"
+        if ratio_change_percent is not None:
+            if ratio_change_percent <= -abs(min_change_percent):
+                action = "buy"
+            elif ratio_change_percent >= abs(min_change_percent):
+                action = "sell"
+
+        owned_target_units = _lookup_price(normalized_holdings, row.id) or _lookup_price(normalized_holdings, row.name) or 0.0
+        whole_units_owned = int(math.floor(owned_target_units))
+        affordable_units = tradable_units
+        required_whole_units = int(math.ceil(max(1.0, min_trade_units)))
+        is_affordable = whole_units_affordable >= required_whole_units
+        can_sell = whole_units_owned >= required_whole_units
+
+        actionable_action = "hold"
+        if action == "buy" and is_affordable:
+            actionable_action = "buy"
+        elif action == "sell" and can_sell:
+            actionable_action = "sell"
+
+        signal = trend_signals.get(row.id) if trend_signals else None
+        if signal is None and trend_signals:
+            signal = trend_signals.get(row.name)
+        trend_1h = signal.get("trend_1h_percent") if signal else None
+        trend_2h = signal.get("trend_2h_percent") if signal else None
+        trend_12h = signal.get("trend_12h_percent") if signal else None
+        trend_24h = signal.get("trend_24h_percent") if signal else None
+        short_term_reversal = signal.get("short_term_reversal") if signal else None
+        trend_alignment = _build_trend_alignment(action, trend_1h)
+
+        exalt_price = _lookup_price(price_map, "exalt")
+        if exalt_price is None:
+            exalt_price = exalt_price_override
 
         recommendations.append(
             {
+                "market_type": market_type,
                 "source_currency": source_currency,
                 "target_currency": row.id,
                 "target_name": row.name,
                 "amount": amount,
-                "converted_amount": converted_amount,
+                "converted_amount": tradable_units,
                 "target_price": target_price,
                 "value_chaos": final_chaos_value,
                 "value_divine": value_divine,
-                "value_exalt": final_chaos_value / _lookup_price(price_map, "exalt") if _lookup_price(price_map, "exalt") else None,
+                "value_exalt": final_chaos_value / exalt_price if exalt_price else None,
+                "spent_source_units": spent_source_units,
+                "leftover_source_units": leftover_source_units,
+                "action": action,
+                "current_ratio": current_ratio,
+                "previous_ratio": previous_ratio,
+                "ratio_change_percent": ratio_change_percent,
+                "affordable_units": affordable_units,
+                "whole_units_affordable": whole_units_affordable,
+                "is_affordable": is_affordable,
+                "owned_target_units": owned_target_units,
+                "whole_units_owned": whole_units_owned,
+                "can_sell": can_sell,
+                "actionable_action": actionable_action,
+                "trend_1h_percent": trend_1h,
+                "trend_2h_percent": trend_2h,
+                "trend_12h_percent": trend_12h,
+                "trend_24h_percent": trend_24h,
+                "short_term_reversal": short_term_reversal,
+                "trend_alignment": trend_alignment,
             }
         )
 
     recommendations.sort(
-        key=lambda item: (item["converted_amount"], item["target_price"]),
+        key=lambda item: (
+            abs(item["ratio_change_percent"]) if item["ratio_change_percent"] is not None else 0.0,
+            item["converted_amount"],
+            item["target_price"],
+        ),
         reverse=True,
     )
     return recommendations[: max(1, max_results)]
@@ -469,4 +579,65 @@ def _normalize_key(value: str) -> str:
 
 
 def _lookup_price(price_map: dict[str, float], currency: str) -> float | None:
-    return price_map.get(_normalize_key(currency))
+    normalized = _normalize_key(currency)
+    direct = price_map.get(normalized)
+    if direct is not None:
+        return direct
+
+    for alias in _currency_aliases(normalized):
+        value = price_map.get(alias)
+        if value is not None:
+            return value
+    return None
+
+
+def lookup_price_in_map(price_map: dict[str, float], currency: str) -> float | None:
+    return _lookup_price(price_map, currency)
+
+
+def resolve_currency_price(payload: dict[str, Any], currency: str) -> float | None:
+    rows = parse_market_rows(payload)
+    price_map = build_price_lookup(rows)
+    return _lookup_price(price_map, currency)
+
+
+def _currency_aliases(normalized_currency: str) -> list[str]:
+    aliases: dict[str, list[str]] = {
+        "exalt": ["exalted", "exalted-orb"],
+        "exalted": ["exalt", "exalted-orb"],
+        "exalted-orb": ["exalt", "exalted"],
+        "chaos": ["chaos-orb"],
+        "chaos-orb": ["chaos"],
+        "div": ["divine", "divine-orb"],
+        "divine": ["div", "divine-orb"],
+        "divine-orb": ["divine", "div"],
+    }
+    return aliases.get(normalized_currency, [])
+
+
+def _normalize_previous_prices(values: dict[str, float] | None) -> dict[str, float]:
+    if not values:
+        return {}
+
+    normalized: dict[str, float] = {}
+    for key, raw_value in values.items():
+        if not isinstance(key, str):
+            continue
+        try:
+            normalized[_normalize_key(key)] = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def _build_trend_alignment(action: str, trend_1h_percent: float | None) -> str | None:
+    if trend_1h_percent is None:
+        return None
+
+    if action == "buy" and trend_1h_percent < 0:
+        return "aligned"
+    if action == "sell" and trend_1h_percent > 0:
+        return "aligned"
+    if action == "hold":
+        return "neutral"
+    return "counter_trend"

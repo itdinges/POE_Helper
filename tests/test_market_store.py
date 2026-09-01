@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.infrastructure.market_store import MarketRowRecord, SQLiteMarketStore
 
 
@@ -86,3 +88,160 @@ def test_market_store_reset_database_clears_rows_and_catalog(tmp_path) -> None:
 
     assert store.get_latest_market_rows("Runes of Aldur", "Currency") == []
     assert store.get_market_types() == []
+
+
+def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
+    db_path = tmp_path / "market.db"
+    store = SQLiteMarketStore(db_path=str(db_path))
+
+    now = datetime(2026, 9, 1, 12, 0, 0)
+    rows = [
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=120.0,
+            primary_value=120.0,
+            fetched_at=now - timedelta(hours=3),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=90.0,
+            primary_value=90.0,
+            fetched_at=now - timedelta(hours=2),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=110.0,
+            primary_value=110.0,
+            fetched_at=now,
+        ),
+    ]
+    store.save_market_rows(rows)
+
+    changed = store.refresh_market_item_stats("Runes of Aldur", "Currency")
+    stats = store.get_market_item_stats("Runes of Aldur", "Currency")
+
+    assert changed == 1
+    assert len(stats) == 1
+    assert stats[0].item_id == "divine"
+    assert stats[0].trend_1h_percent == pytest.approx(22.2222222222)
+    assert stats[0].trend_2h_percent == pytest.approx(22.2222222222)
+    assert stats[0].trend_12h_percent is None
+    assert stats[0].trend_24h_percent is None
+    assert stats[0].short_term_reversal == "none"
+
+
+def test_market_store_detects_bearish_reversal_when_24h_up_but_1h_2h_down(tmp_path) -> None:
+    db_path = tmp_path / "market.db"
+    store = SQLiteMarketStore(db_path=str(db_path))
+
+    now = datetime(2026, 9, 1, 12, 0, 0)
+    rows = [
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="exalt",
+            item_name="Exalted Orb",
+            chaos_value=100.0,
+            primary_value=100.0,
+            fetched_at=now - timedelta(hours=25),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="exalt",
+            item_name="Exalted Orb",
+            chaos_value=140.0,
+            primary_value=140.0,
+            fetched_at=now - timedelta(hours=2, minutes=30),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="exalt",
+            item_name="Exalted Orb",
+            chaos_value=130.0,
+            primary_value=130.0,
+            fetched_at=now - timedelta(hours=1, minutes=30),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="exalt",
+            item_name="Exalted Orb",
+            chaos_value=120.0,
+            primary_value=120.0,
+            fetched_at=now,
+        ),
+    ]
+    store.save_market_rows(rows)
+    store.refresh_market_item_stats("Runes of Aldur", "Currency")
+    stats = store.get_market_item_stats("Runes of Aldur", "Currency")
+
+    assert len(stats) == 1
+    assert stats[0].trend_24h_percent > 0
+    assert stats[0].trend_1h_percent < 0
+    assert stats[0].trend_2h_percent < 0
+    assert stats[0].short_term_reversal == "bearish_reversal"
+
+
+def test_market_store_detects_bullish_reversal_when_24h_down_but_1h_2h_up(tmp_path) -> None:
+    db_path = tmp_path / "market.db"
+    store = SQLiteMarketStore(db_path=str(db_path))
+
+    now = datetime(2026, 9, 1, 12, 0, 0)
+    rows = [
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=200.0,
+            primary_value=200.0,
+            fetched_at=now - timedelta(hours=25),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=120.0,
+            primary_value=120.0,
+            fetched_at=now - timedelta(hours=2, minutes=30),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=130.0,
+            primary_value=130.0,
+            fetched_at=now - timedelta(hours=1, minutes=30),
+        ),
+        MarketRowRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            chaos_value=140.0,
+            primary_value=140.0,
+            fetched_at=now,
+        ),
+    ]
+    store.save_market_rows(rows)
+    store.refresh_market_item_stats("Runes of Aldur", "Currency")
+    stats = store.get_market_item_stats("Runes of Aldur", "Currency")
+
+    assert len(stats) == 1
+    assert stats[0].trend_24h_percent < 0
+    assert stats[0].trend_1h_percent > 0
+    assert stats[0].trend_2h_percent > 0
+    assert stats[0].short_term_reversal == "bullish_reversal"

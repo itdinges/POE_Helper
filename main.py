@@ -10,6 +10,65 @@ from app.observability import configure_logging, tail_log_file
 log = logging.getLogger("poe-helper")
 
 
+def _format_dutch_number(value: float, decimals: int = 3) -> str:
+    formatted = format(value, f",.{decimals}f")
+    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def _format_dutch_amount(value: float, decimals: int = 3) -> str:
+    return _format_dutch_number(value, decimals)
+
+
+def _print_text_table(headers: list[str], rows: list[list[str]]) -> None:
+    if not headers:
+        return
+
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    def _render_row(cells: list[str]) -> str:
+        return " | ".join(cell.ljust(widths[index]) for index, cell in enumerate(cells))
+
+    divider = "-+-".join("-" * width for width in widths)
+
+    print(_render_row(headers))
+    print(divider)
+    for row in rows:
+        print(_render_row(row))
+
+
+def _trend_value(value: float | None, *, default: float) -> float:
+    if value is None:
+        return default
+    return value
+
+
+def _is_bullish_reversal_candidate(trend_1h: float | None, trend_2h: float | None, trend_24h: float | None) -> bool:
+    if trend_1h is None or trend_2h is None or trend_24h is None:
+        return False
+    return trend_24h < 0 and trend_1h > 0 and trend_2h > 0
+
+
+def _is_pullback_in_uptrend(trend_1h: float | None, trend_24h: float | None) -> bool:
+    if trend_1h is None or trend_24h is None:
+        return False
+    return trend_24h > 0 and trend_1h < 0
+
+
+def _is_risky_free_fall(trend_1h: float | None, trend_12h: float | None, trend_24h: float | None) -> bool:
+    if trend_24h is None:
+        return False
+
+    sustained_drop = trend_24h <= -30.0
+    short_term_drop = (
+        (trend_1h is not None and trend_1h < 0)
+        or (trend_12h is not None and trend_12h < 0)
+    )
+    return sustained_drop and short_term_drop
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POE 2 helper for local filter management.")
     parser.add_argument("--list", action="store_true", help="List available filter files")
@@ -41,7 +100,7 @@ def parse_args() -> argparse.Namespace:
         "--market-type",
         type=str,
         default="Currency",
-        help="poe.ninja market type, for example Currency",
+        help="poe.ninja market type, 'all', or a comma-separated list such as Currency,Fragments",
     )
     parser.add_argument(
         "--market-out-dir",
@@ -68,9 +127,34 @@ def parse_args() -> argparse.Namespace:
         help="Minimum chaos margin to show in vendor comparison",
     )
     parser.add_argument("--convert", action="store_true", help="Convert currency amount using market chaos-equivalent rates")
+    parser.add_argument("--recommend", action="store_true", help="Rank alternative currency conversions and show final Divine-equivalent value")
+    parser.add_argument(
+        "--recommend-min-change",
+        type=float,
+        default=0.5,
+        help="Minimum ratio change percent before recommendation becomes buy/sell",
+    )
+    parser.add_argument(
+        "--recommend-min-units",
+        type=float,
+        default=1.0,
+        help="Minimum target units to treat a buy recommendation as actionable",
+    )
+    parser.add_argument(
+        "--holdings-file",
+        type=str,
+        default=None,
+        help="Optional JSON holdings file: plain map or stash-style payload with items[]",
+    )
     parser.add_argument("--from-currency", type=str, default=None, help="Source currency id or name")
+    parser.add_argument(
+        "--source-currency",
+        type=str,
+        default="exalt",
+        help="Source currency for recommendation ranking (default: exalt)",
+    )
     parser.add_argument("--to-currency", type=str, default=None, help="Target currency id or name")
-    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion or route simulation")
+    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion, recommendation, or route simulation")
     parser.add_argument(
         "--flip-route-file",
         type=str,
@@ -121,13 +205,226 @@ def main() -> None:
             amount=args.amount,
             flip_route_file=args.flip_route_file,
             flip_route_name=args.flip_route_name,
+            recommend=args.recommend,
+            source_currency=args.source_currency or args.from_currency,
+            recommend_min_change=args.recommend_min_change,
+            recommend_min_units=args.recommend_min_units,
+            holdings_file=args.holdings_file,
         )
         if not response.ok and response.error and response.error_stage == "fetch":
             print(response.error)
             return
 
+        if args.recommend:
+            if not response.ok and response.error and response.error_stage == "recommend":
+                print(response.error)
+                return
+
+            source_currency = args.source_currency or args.from_currency or "exalt"
+            fetched_at = response.market_data_fetched_at or "unknown"
+            source_label = response.market_data_source or "unknown"
+            print(f"Market data: {source_label} | fetched_at={fetched_at}")
+            print()
+
+            if not response.recommendations:
+                print("No recommendation opportunities found for the selected source currency.")
+                return
+
+            sell_candidates = [
+                rec
+                for rec in response.recommendations
+                if rec.whole_units_owned > 0
+                and (
+                    rec.actionable_action == "sell"
+                    or _trend_value(rec.trend_1h_percent, default=0.0) > 0
+                    or _trend_value(rec.trend_12h_percent, default=0.0) > 0
+                    or _trend_value(rec.trend_24h_percent, default=0.0) > 0
+                )
+            ]
+            buy_candidates = [
+                rec
+                for rec in response.recommendations
+                if rec.whole_units_affordable > 0
+                and (
+                    rec.actionable_action == "buy"
+                    or rec.short_term_reversal == "bullish_reversal"
+                    or _is_bullish_reversal_candidate(
+                        rec.trend_1h_percent,
+                        rec.trend_2h_percent,
+                        rec.trend_24h_percent,
+                    )
+                    or _is_pullback_in_uptrend(rec.trend_1h_percent, rec.trend_24h_percent)
+                )
+            ]
+            risky_dip_watchlist = [
+                rec
+                for rec in response.recommendations
+                if _is_risky_free_fall(
+                    rec.trend_1h_percent,
+                    rec.trend_12h_percent,
+                    rec.trend_24h_percent,
+                )
+                and rec.short_term_reversal != "bullish_reversal"
+            ]
+
+            sell_candidates.sort(
+                key=lambda rec: (
+                    _trend_value(rec.trend_1h_percent, default=float("-inf")),
+                    _trend_value(rec.trend_12h_percent, default=float("-inf")),
+                    _trend_value(rec.trend_24h_percent, default=float("-inf")),
+                    _trend_value(rec.ratio_change_percent, default=float("-inf")),
+                ),
+                reverse=True,
+            )
+            buy_candidates.sort(
+                key=lambda rec: (
+                    _trend_value(rec.trend_1h_percent, default=float("inf")),
+                    _trend_value(rec.trend_12h_percent, default=float("inf")),
+                    _trend_value(rec.trend_24h_percent, default=float("inf")),
+                    _trend_value(rec.ratio_change_percent, default=float("inf")),
+                ),
+            )
+            risky_dip_watchlist.sort(
+                key=lambda rec: (
+                    _trend_value(rec.trend_24h_percent, default=0.0),
+                    _trend_value(rec.trend_12h_percent, default=0.0),
+                    _trend_value(rec.trend_1h_percent, default=0.0),
+                ),
+            )
+
+            print("Sell candidates (trend + owned inventory):")
+            if not sell_candidates:
+                print("No sell candidates with current holdings.")
+                print()
+            else:
+                sell_headers = [
+                    "Type",
+                    "Currency",
+                    "Owned",
+                    "1h",
+                    "12h",
+                    "24h",
+                    "Ratio Delta",
+                    "Reason",
+                    "Signal",
+                ]
+                sell_rows = [
+                    [
+                        rec.market_type,
+                        rec.target_name,
+                        str(rec.whole_units_owned),
+                        f"{_format_dutch_number(rec.trend_1h_percent, 2)}%" if rec.trend_1h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.trend_12h_percent, 2)}%" if rec.trend_12h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.trend_24h_percent, 2)}%" if rec.trend_24h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.ratio_change_percent, 2)}%" if rec.ratio_change_percent is not None else "n/a",
+                        "sell" if rec.actionable_action == "sell" else "watch_trend",
+                        rec.short_term_reversal or "none",
+                    ]
+                    for rec in sell_candidates[: args.market_limit]
+                ]
+                _print_text_table(sell_headers, sell_rows)
+                print("Note: reason=watch_trend means trend setup only, not a strong sell signal yet.")
+                print()
+
+            print(f"Buy candidates (trend + what you can buy with {source_currency}):")
+            if not buy_candidates:
+                print("No buy candidates for current budget.")
+                print()
+            else:
+                buy_headers = [
+                    "Type",
+                    "Currency",
+                    "Can Buy",
+                    f"Spend ({source_currency})",
+                    f"Left ({source_currency})",
+                    "1h",
+                    "12h",
+                    "24h",
+                    "Ratio Delta",
+                    "Reason",
+                    "Signal",
+                ]
+                buy_rows = [
+                    [
+                        rec.market_type,
+                        rec.target_name,
+                        str(rec.whole_units_affordable),
+                        _format_dutch_amount(rec.spent_source_units),
+                        _format_dutch_amount(rec.leftover_source_units),
+                        f"{_format_dutch_number(rec.trend_1h_percent, 2)}%" if rec.trend_1h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.trend_12h_percent, 2)}%" if rec.trend_12h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.trend_24h_percent, 2)}%" if rec.trend_24h_percent is not None else "n/a",
+                        f"{_format_dutch_number(rec.ratio_change_percent, 2)}%" if rec.ratio_change_percent is not None else "n/a",
+                        "buy" if rec.actionable_action == "buy" else "watch_trend",
+                        rec.short_term_reversal or "none",
+                    ]
+                    for rec in buy_candidates[: args.market_limit]
+                ]
+                _print_text_table(buy_headers, buy_rows)
+                print("Note: reason=watch_trend means this is a watchlist dip, not a direct buy call.")
+            print()
+
+            print("Risky dip watchlist (deep drops, avoid panic buying):")
+            if not risky_dip_watchlist:
+                print("No risky free-fall items right now.")
+                print()
+                return
+
+            risk_headers = [
+                "Type",
+                "Currency",
+                "1h",
+                "12h",
+                "24h",
+                "Can Buy",
+                "Signal",
+            ]
+            risk_rows = [
+                [
+                    rec.market_type,
+                    rec.target_name,
+                    f"{_format_dutch_number(rec.trend_1h_percent, 2)}%" if rec.trend_1h_percent is not None else "n/a",
+                    f"{_format_dutch_number(rec.trend_12h_percent, 2)}%" if rec.trend_12h_percent is not None else "n/a",
+                    f"{_format_dutch_number(rec.trend_24h_percent, 2)}%" if rec.trend_24h_percent is not None else "n/a",
+                    str(rec.whole_units_affordable),
+                    rec.short_term_reversal or "none",
+                ]
+                for rec in risky_dip_watchlist[: args.market_limit]
+            ]
+            _print_text_table(risk_headers, risk_rows)
+            print()
+            return
+
         print("POE Helper market fetch complete.")
         print(f"Snapshot written: {response.snapshot_path}")
+
+        if response.trend_highlights:
+            print("Top short-term reversals (bullish/bearish):")
+            trend_headers = [
+                "Reversal",
+                "Target",
+                "Target ID",
+                "1h",
+                "2h",
+                "12h",
+                "24h",
+                "Chaos",
+            ]
+            trend_rows: list[list[str]] = []
+            for row in response.trend_highlights:
+                trend_rows.append(
+                    [
+                        row.short_term_reversal,
+                        row.target_name,
+                        row.target_currency,
+                        f"{_format_dutch_number(row.trend_1h_percent, 2)}%" if row.trend_1h_percent is not None else "n/a",
+                        f"{_format_dutch_number(row.trend_2h_percent, 2)}%" if row.trend_2h_percent is not None else "n/a",
+                        f"{_format_dutch_number(row.trend_12h_percent, 2)}%" if row.trend_12h_percent is not None else "n/a",
+                        f"{_format_dutch_number(row.trend_24h_percent, 2)}%" if row.trend_24h_percent is not None else "n/a",
+                        _format_dutch_amount(row.latest_chaos_value) if row.latest_chaos_value is not None else "n/a",
+                    ]
+                )
+            _print_text_table(trend_headers, trend_rows)
 
         if not response.top_entries:
             print("No market rows available in payload.")
@@ -135,7 +432,7 @@ def main() -> None:
 
         print(f"Top {len(response.top_entries)} entries by chaos value:")
         for row in response.top_entries:
-            print(f"- {row.name}: {row.chaos_value:.3f} chaos")
+            print(f"- {row.name}: {_format_dutch_amount(row.chaos_value)} chaos")
 
         if args.vendor_file:
             if not response.ok and response.error and response.error_stage == "vendor":
@@ -146,11 +443,11 @@ def main() -> None:
                 print("No vendor comparison opportunities found for this snapshot.")
                 return
 
-            print(f"Vendor comparison opportunities (margin >= {args.min_margin:.3f} chaos):")
+            print(f"Vendor comparison opportunities (margin >= {_format_dutch_amount(args.min_margin)} chaos):")
             for row in response.vendor_opportunities[: args.market_limit]:
                 print(
-                    f"- {row.name}: market={row.market_chaos_value:.3f}, "
-                    f"vendor={row.vendor_chaos_cost:.3f}, margin={row.margin_chaos:.3f} chaos"
+                    f"- {row.name}: market={_format_dutch_amount(row.market_chaos_value)}, "
+                    f"vendor={_format_dutch_amount(row.vendor_chaos_cost)}, margin={_format_dutch_amount(row.margin_chaos)} chaos"
                 )
 
         if args.convert:
@@ -161,8 +458,8 @@ def main() -> None:
                 return
 
             print(
-                f"Conversion: {response.conversion.amount:.3f} {response.conversion.from_currency} ~= "
-                f"{response.conversion.converted_amount:.3f} {response.conversion.to_currency}"
+                f"Conversion: {_format_dutch_amount(response.conversion.amount)} {response.conversion.from_currency} ~= "
+                f"{_format_dutch_amount(response.conversion.converted_amount)} {response.conversion.to_currency}"
             )
 
         if args.flip_route_file or args.flip_route_name:
@@ -178,14 +475,14 @@ def main() -> None:
             for note in response.flip_simulation.step_notes:
                 print(f"- {note}")
             print(
-                f"Result: start={response.flip_simulation.start_amount:.3f} {response.flip_simulation.start_currency}, "
-                f"end={response.flip_simulation.end_amount:.3f} {response.flip_simulation.end_currency}"
+                f"Result: start={_format_dutch_amount(response.flip_simulation.start_amount)} {response.flip_simulation.start_currency}, "
+                f"end={_format_dutch_amount(response.flip_simulation.end_amount)} {response.flip_simulation.end_currency}"
             )
             print(
-                f"Chaos PnL: cost={response.flip_simulation.cost_chaos:.3f}, "
-                f"revenue={response.flip_simulation.revenue_chaos:.3f}, "
-                f"profit={response.flip_simulation.profit_chaos:.3f}, "
-                f"roi={response.flip_simulation.roi_percent:.2f}%"
+                f"Chaos PnL: cost={_format_dutch_amount(response.flip_simulation.cost_chaos)}, "
+                f"revenue={_format_dutch_amount(response.flip_simulation.revenue_chaos)}, "
+                f"profit={_format_dutch_amount(response.flip_simulation.profit_chaos)}, "
+                f"roi={_format_dutch_number(response.flip_simulation.roi_percent, 2)}%"
             )
         return
 

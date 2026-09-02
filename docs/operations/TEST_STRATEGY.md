@@ -51,6 +51,19 @@ Config and validation:
 - pytest-cov
 - responses or requests-mock for HTTP stubs
 
+## Coverage Policy
+
+- Keep coverage enforcement progressive instead of starting with a high hard threshold.
+- Current state target: track and improve from baseline without fail-under blocking.
+- Near-term threshold target: 45% overall.
+- Next threshold target: 55% overall after market parser and observability tests are added.
+- Long-term target: 70%+ once major architecture modules stabilize.
+
+Current status:
+
+- Current measured overall coverage is above the long-term 70% target.
+- Continue to enforce growth by requiring meaningful tests for each new feature area.
+
 ## Initial Test File Plan
 
 - tests/test_filter_manager.py

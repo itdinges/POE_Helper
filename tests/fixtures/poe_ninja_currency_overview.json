@@ -1,0 +1,22 @@
+{
+  "core": {
+    "items": [
+      {"id": "divine", "name": "Divine Orb"},
+      {"id": "chaos", "name": "Chaos Orb"},
+      {"id": "wisdom", "name": "Scroll of Wisdom"},
+      {"id": "aug", "name": "Orb of Augmentation"}
+    ],
+    "rates": {
+      "chaos": 10.0
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+  },
+  "lines": [
+    {"id": "divine", "primaryValue": 1.0},
+    {"id": "chaos", "primaryValue": 0.1},
+    {"id": "wisdom", "primaryValue": 0.00005},
+    {"id": "aug", "primaryValue": 0.0003},
+    {"id": "unmapped-currency", "primaryValue": 0.005}
+  ]
+}

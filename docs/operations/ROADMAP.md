@@ -16,15 +16,22 @@
 - done: keep adapter boundaries between domain logic and external data sources
 - next: add explicit manual trigger flow abstraction and scheduling-ready hooks
 
-## Phase 3: Config-Driven Rules
+## Phase 3: Config-Driven Rules and Fetch Catalogs
 
+- done: load market fetch types from a config-backed catalog
+- done: separate default utility types from progression/modifier-driven types
 - load profiles from JSON/YAML
 - allow profile composition (example: league_start + crafting)
 - validation for malformed or conflicting rules
 
 ## Phase 4: Data-Aware Suggestions
 
-- market snapshot ingestion
+- done: market snapshot ingestion
+- done: SQLite-backed historical persistence
+- done: normalizer + scoring pipeline for item recommendations
+- done: score-to-filter generation for profile-based managed output
+- done: config-driven fetch registry for default utility categories
+- done: progression and modifier-driven categories tracked separately from the default market layer
 - route scanner for profitable flips
 - optional value thresholds for show/hide highlighting
 - profile presets for leveling, mapping, and crafting focus
@@ -38,6 +45,7 @@
 
 ## Phase 6: Test and Quality Gates
 
+- done: baseline review gate script for coverage, lint, security, and architecture docs presence
 - fixture-driven unit tests for parser and conversion logic
 - integration tests for file workflows and command outputs
 - optional live endpoint smoke tests behind explicit marker

@@ -27,6 +27,28 @@ This document defines the target architecture before deeper feature work.
 - File system, HTTP clients, cache store, config loader.
 - No business decisions here.
 
+## Clean Architecture Boundaries
+
+Rule: keep authentication and external protocol concerns outside market-domain logic.
+
+Current boundaries:
+
+- app/market.py
+  - market parsing, normalization helpers, conversion math, and recommendation support
+  - no OAuth token handling or auth configuration parsing
+- app/application/services.py
+  - workflow orchestration and source routing (for example: poe_ninja vs oauth_cx)
+  - coordinates adapters/clients but does not implement auth protocols
+- app/infrastructure/oauth_currency_exchange.py
+  - OAuth client_credentials token flow
+  - authenticated Currency Exchange HTTP calls, retry/backoff, and runtime config resolution
+
+Maintenance rule:
+
+- new providers that require auth should add auth and transport logic under infrastructure
+- market-domain code should consume normalized payloads only
+- orchestration should select source via explicit mode/flags, not by embedding auth behavior in domain modules
+
 ## Module Split Proposal
 
 - app/filter_manager.py
@@ -110,7 +132,8 @@ This keeps CLI, API, and UI aligned.
 
 ## Security and Privacy Constraints
 
-- Auth credentials must stay in environment variables.
+- Auth credentials should prefer environment variables in production.
+- Local development may load OAuth values from config/settings.json when explicitly configured.
 - Never write secrets to logs.
 - Keep authenticated features read-only by default.
 - Rate limit all authenticated requests.

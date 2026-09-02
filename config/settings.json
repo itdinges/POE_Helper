@@ -1,0 +1,16 @@
+{
+  "league": "Runes of Aldur",
+  "oauth": {
+    "client_id": "",
+    "client_secret": "",
+    "realm": "poe2",
+    "token_url": "https://www.pathofexile.com/oauth/token",
+    "api_base_url": "https://api.pathofexile.com/currency-exchange",
+    "app_id": "poe-helper",
+    "app_version": "0.1.0",
+    "contact": "you@example.com",
+    "timeout_seconds": 20,
+    "max_retries": 3,
+    "retry_base_seconds": 1.0
+  }
+}

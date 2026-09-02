@@ -83,14 +83,25 @@ class MarketClient:
         )
         return payload
 
-    def save_snapshot(self, payload: dict[str, Any], output_directory: str, league: str, market_type: str) -> Path:
+    def save_snapshot(
+        self,
+        payload: dict[str, Any],
+        output_directory: str,
+        league: str,
+        market_type: str,
+        source_tag: str | None = None,
+    ) -> Path:
         output_dir = Path(output_directory).expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
         league_slug = _sanitize_filename(league)
         type_slug = _sanitize_filename(market_type)
+        source_slug = _sanitize_filename(source_tag) if source_tag else None
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        file_path = output_dir / f"{league_slug}_{type_slug}_{timestamp}.json"
+        if source_slug:
+            file_path = output_dir / f"{league_slug}_{type_slug}_{source_slug}_{timestamp}.json"
+        else:
+            file_path = output_dir / f"{league_slug}_{type_slug}_{timestamp}.json"
         file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         log.info(
             "Market snapshot saved (league=%s, type=%s, path=%s)",
@@ -457,6 +468,9 @@ def build_price_lookup(rows: list[MarketRow]) -> dict[str, float]:
 
 
 def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
+    if isinstance(payload.get("markets"), list):
+        return _parse_currency_exchange_rows(payload)
+
     name_lookup = _build_name_lookup(payload)
     chaos_per_primary = _extract_chaos_per_primary(payload)
 
@@ -490,6 +504,134 @@ def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
 
     log.debug("Parsed market rows", extra={"count": len(rows)})
     return rows
+
+
+def _parse_currency_exchange_rows(payload: dict[str, Any]) -> list[MarketRow]:
+    markets = payload.get("markets")
+    if not isinstance(markets, list):
+        return []
+
+    graph: dict[str, dict[str, float]] = {}
+    for market in markets:
+        if not isinstance(market, dict):
+            continue
+        market_pair = market.get("market_pair")
+        if not isinstance(market_pair, list) or len(market_pair) != 2:
+            continue
+        left = market_pair[0]
+        right = market_pair[1]
+        if not isinstance(left, str) or not isinstance(right, str):
+            continue
+
+        ratio = market.get("lowest_ratio")
+        if not isinstance(ratio, dict):
+            continue
+        left_qty = _to_float(ratio.get(left))
+        right_qty = _to_float(ratio.get(right))
+        if left_qty is None or right_qty is None or left_qty <= 0 or right_qty <= 0:
+            continue
+
+        right_per_left = right_qty / left_qty
+        left_per_right = left_qty / right_qty
+        graph.setdefault(left, {})[right] = right_per_left
+        graph.setdefault(right, {})[left] = left_per_right
+
+    anchor = _find_anchor_currency_id(graph)
+    if anchor is None:
+        return []
+
+    chaos_values = _bfs_currency_values(graph, anchor)
+    rows: list[MarketRow] = []
+    for currency_id, chaos_value in chaos_values.items():
+        canonical_id = _canonical_currency_id(currency_id)
+        rows.append(
+            MarketRow(
+                id=canonical_id,
+                name=_canonical_currency_name(currency_id),
+                chaos_value=chaos_value,
+                primary_value=chaos_value,
+            )
+        )
+    return rows
+
+
+def _find_anchor_currency_id(graph: dict[str, dict[str, float]]) -> str | None:
+    if not graph:
+        return None
+
+    for candidate in graph:
+        lower_candidate = candidate.lower()
+        if "currencyrerollrare" in lower_candidate or lower_candidate.endswith("/chaosorb"):
+            return candidate
+
+    return next(iter(graph))
+
+
+def _bfs_currency_values(graph: dict[str, dict[str, float]], anchor: str) -> dict[str, float]:
+    values: dict[str, float] = {anchor: 1.0}
+    queue: list[str] = [anchor]
+
+    while queue:
+        current = queue.pop(0)
+        current_value = values[current]
+        for neighbor, neighbor_per_current in graph.get(current, {}).items():
+            if neighbor_per_current <= 0:
+                continue
+            neighbor_value = current_value / neighbor_per_current
+            if neighbor not in values:
+                values[neighbor] = neighbor_value
+                queue.append(neighbor)
+                continue
+
+            # Smooth contradictory pair observations with a midpoint to reduce noise.
+            values[neighbor] = (values[neighbor] + neighbor_value) / 2.0
+
+    return values
+
+
+def _canonical_currency_id(currency_id: str) -> str:
+    key = currency_id.strip().split("/")[-1]
+    lower = key.lower()
+    aliases = {
+        "currencyrerollrare": "chaos",
+        "currencyreraresocketcolours": "chromatic",
+        "currencyupgradetorare": "regal",
+        "currencyupgradetomagic": "transmute",
+        "currencyaddmodtomagic": "augmentation",
+        "currencyrerollmagic": "alteration",
+        "currencymodvalues": "divine",
+        "currencyconverttox": "exalt",
+        "currencyconverttoxpre210": "exalt",
+        "currencyupgradegemquality": "gemcutter",
+        "currencyidentification": "wisdom",
+        "currencyportal": "portal",
+    }
+    return aliases.get(lower, key)
+
+
+def _canonical_currency_name(currency_id: str) -> str:
+    key = currency_id.strip().split("/")[-1]
+    names = {
+        "CurrencyRerollRare": "Chaos Orb",
+        "CurrencyModValues": "Divine Orb",
+        "CurrencyConvertToX": "Exalted Orb",
+        "CurrencyConvertToXPre210": "Exalted Orb",
+        "CurrencyIdentification": "Scroll of Wisdom",
+        "CurrencyPortal": "Portal Scroll",
+    }
+    if key in names:
+        return names[key]
+    return _humanize_cx_id(key)
+
+
+def _humanize_cx_id(value: str) -> str:
+    parts = []
+    token = value.removeprefix("Currency")
+    for ch in token:
+        if ch.isupper() and parts:
+            parts.append(" ")
+        parts.append(ch)
+    return "".join(parts).strip() or value
 
 
 def _extract_name(line: dict[str, Any]) -> str | None:

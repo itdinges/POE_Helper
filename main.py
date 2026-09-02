@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+from pathlib import Path
 
 from app.application.services import build_filter, execute_market_workflow, initialize_filter_manager, list_filters
 from app.observability import configure_logging, tail_log_file
 
 
 log = logging.getLogger("poe-helper")
+SETTINGS_PATH = Path("config/settings.json")
+DEFAULT_LEAGUE = "Runes of Aldur"
+POE_APPS_URL = "https://www.pathofexile.com/my-account/applications"
+POE_AUTHORIZE_URL = "https://www.pathofexile.com/oauth/authorize"
 
 
 def _format_dutch_number(value: float, decimals: int = 3) -> str:
@@ -69,6 +75,70 @@ def _is_risky_free_fall(trend_1h: float | None, trend_12h: float | None, trend_2
     return sustained_drop and short_term_drop
 
 
+def _load_configured_league() -> str:
+    raw = _load_settings_json()
+    if not isinstance(raw, dict):
+        return DEFAULT_LEAGUE
+
+    league = raw.get("league")
+    if isinstance(league, str) and league.strip():
+        return league.strip()
+    return DEFAULT_LEAGUE
+
+
+def _load_settings_json() -> dict:
+    try:
+        raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        log.warning("Settings file not found, using default league", extra={"path": str(SETTINGS_PATH)})
+        return {}
+    except (OSError, json.JSONDecodeError):
+        log.warning("Settings file unreadable, using default league", extra={"path": str(SETTINGS_PATH)})
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+    return raw
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return "missing"
+    if len(value) <= 6:
+        return "set"
+    return f"set ({value[:3]}...{value[-3:]})"
+
+
+def _print_oauth_setup_guide() -> None:
+    settings = _load_settings_json()
+    oauth = settings.get("oauth") if isinstance(settings.get("oauth"), dict) else {}
+
+    client_id = str(oauth.get("client_id") or "").strip()
+    client_secret = str(oauth.get("client_secret") or "").strip()
+    realm = str(oauth.get("realm") or "poe2").strip() or "poe2"
+
+    print("OAuth Currency Exchange setup guide")
+    print("===================================")
+    print("")
+    print("Status from config/settings.json:")
+    print(f"- oauth.client_id: {_mask_secret(client_id)}")
+    print(f"- oauth.client_secret: {_mask_secret(client_secret)}")
+    print(f"- oauth.realm: {realm}")
+    print("")
+    print("Required flow for this project (service:cxapi):")
+    print("1. Open your PoE account applications page and create/manage your OAuth app:")
+    print(f"   {POE_APPS_URL}")
+    print("2. Use a confidential client and copy client id + client secret into config/settings.json")
+    print("3. Ensure the app has access for service:cxapi")
+    print("4. Run the market command with oauth source:")
+    print("   python main.py --market --market-source oauth_cx --market-type Currency")
+    print("")
+    print("Note:")
+    print("- /oauth/authorize is the user-consent page and is useful for authorization-code flows.")
+    print("- The current Currency Exchange service integration here uses /oauth/token with client_credentials.")
+    print(f"- Authorization page URL: {POE_AUTHORIZE_URL}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POE 2 helper for local filter management.")
     parser.add_argument("--list", action="store_true", help="List available filter files")
@@ -101,6 +171,13 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="Currency",
         help="poe.ninja market type, 'all', or a comma-separated list such as Currency,Fragments",
+    )
+    parser.add_argument(
+        "--market-source",
+        type=str,
+        default="poe_ninja",
+        choices=["poe_ninja", "oauth_cx"],
+        help="Market source for Currency (default: poe_ninja, optional: oauth_cx)",
     )
     parser.add_argument(
         "--market-out-dir",
@@ -169,6 +246,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tail-logs", action="store_true", help="Print recent backend logs")
     parser.add_argument("--follow-logs", action="store_true", help="Stream backend logs continuously")
+    parser.add_argument("--oauth-setup", action="store_true", help="Print OAuth setup steps for Currency Exchange source")
     parser.add_argument("--log-lines", type=int, default=40, help="Number of log lines to show for --tail-logs")
     parser.add_argument("--log-level", type=str, default="INFO", help="Log level: DEBUG, INFO, WARNING, ERROR")
     parser.add_argument(
@@ -184,6 +262,11 @@ def main() -> None:
     args = parse_args()
     log_file_path = configure_logging(log_level=args.log_level, log_file=args.log_file)
     log.info("Command started")
+    configured_league = _load_configured_league()
+
+    if args.oauth_setup:
+        _print_oauth_setup_guide()
+        return
 
     if args.tail_logs or args.follow_logs:
         log.info("Log tail requested")
@@ -191,9 +274,9 @@ def main() -> None:
         return
 
     if args.market:
-        log.info("Market workflow started", extra={"league": args.league, "market_type": args.market_type})
+        log.info("Market workflow started", extra={"league": configured_league, "market_type": args.market_type})
         response = execute_market_workflow(
-            league=args.league,
+            league=configured_league,
             market_type=args.market_type,
             market_out_dir=args.market_out_dir,
             market_limit=args.market_limit,
@@ -210,6 +293,7 @@ def main() -> None:
             recommend_min_change=args.recommend_min_change,
             recommend_min_units=args.recommend_min_units,
             holdings_file=args.holdings_file,
+            market_source=args.market_source,
         )
         if not response.ok and response.error and response.error_stage == "fetch":
             print(response.error)

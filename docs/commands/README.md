@@ -36,6 +36,20 @@ Other market helpers:
 python main.py --market --league "Runes of Aldur" --market-type Currency --recommend --holdings-file config/holdings.example.json
 ```
 
+OAuth Currency Exchange setup and run:
+
+```bash
+python main.py --oauth-setup
+python main.py --market --market-source oauth_cx --market-type Currency
+```
+
+For `oauth_cx`, fill `oauth.client_id` and `oauth.client_secret` in [config/settings.json](config/settings.json).
+Use your PoE account applications page to create/manage confidential client credentials:
+
+- https://www.pathofexile.com/my-account/applications
+
+Note: `/oauth/authorize` is primarily for user-consent authorization-code flows; this project's `service:cxapi` fetch currently uses `/oauth/token` with `client_credentials`.
+
 Manual holdings file format example:
 
 ```json

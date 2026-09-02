@@ -626,3 +626,117 @@ def test_execute_market_workflow_recommendations_include_market_type(monkeypatch
     assert response.recommendations
     recommendation_types = {rec.market_type for rec in response.recommendations}
     assert recommendation_types == {"Currency", "Fragments"}
+
+
+def test_execute_market_workflow_routes_currency_to_oauth_source(monkeypatch, tmp_path: Path) -> None:
+    calls = {"oauth": 0, "ninja": 0}
+
+    class FakeOAuthClient:
+        def fetch_overview(self, league: str, market_type: str):
+            calls["oauth"] += 1
+            return {
+                "markets": [
+                    {
+                        "league": league,
+                        "market_pair": [
+                            "Metadata/Items/Currency/CurrencyRerollRare",
+                            "Metadata/Items/Currency/CurrencyConvertToX",
+                        ],
+                        "lowest_ratio": {
+                            "Metadata/Items/Currency/CurrencyRerollRare": 120,
+                            "Metadata/Items/Currency/CurrencyConvertToX": 1,
+                        },
+                    }
+                ]
+            }
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str, source_tag: str | None = None):
+            suffix = f"_{source_tag}" if source_tag else ""
+            return Path(output_directory) / f"{market_type}{suffix}.json"
+
+    class FakeMarketClient:
+        def fetch_overview(self, league: str, market_type: str):
+            calls["ninja"] += 1
+            return {"lines": [{"id": "frag", "primaryValue": 1.0}]}
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
+            return Path(output_directory) / f"{market_type}.json"
+
+    class FakeStore:
+        def __init__(self, db_path):
+            self.db_path = db_path
+
+        def sync_market_types(self, config, *, source="config"):
+            return []
+
+        def save_market_rows(self, rows):
+            return None
+
+        def get_latest_market_rows(self, league: str, market_type: str):
+            return []
+
+        def refresh_market_item_stats(self, league: str, market_type: str):
+            return 0
+
+        def get_market_item_stats(self, league: str, market_type: str):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "app.application.services.OAuthCurrencyExchangeClient.from_environment",
+        lambda: FakeOAuthClient(),
+    )
+    monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
+    monkeypatch.setattr("app.application.services.SQLiteMarketStore", FakeStore)
+    monkeypatch.setattr("app.application.services.summarize_market", lambda payload, limit=10: [("x", 1.0)])
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="Currency,Fragments",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+        market_source="oauth_cx",
+    )
+
+    assert response.ok is True
+    assert calls["oauth"] == 1
+    assert calls["ninja"] == 1
+
+
+def test_execute_market_workflow_oauth_source_requires_credentials(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("POE_CX_CLIENT_ID", raising=False)
+    monkeypatch.delenv("POE_CX_CLIENT_SECRET", raising=False)
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="Currency",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+        market_source="oauth_cx",
+    )
+
+    assert response.ok is False
+    assert response.error_stage == "fetch"
+    assert response.error is not None
+    assert "POE_CX_CLIENT_ID" in response.error

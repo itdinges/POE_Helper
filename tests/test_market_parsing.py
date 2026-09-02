@@ -208,3 +208,42 @@ def test_market_client_fetch_and_save_snapshot(monkeypatch, tmp_path: Path) -> N
 
     assert snapshot.exists()
     assert "runes-of-aldur_currency_" in snapshot.name
+
+
+def test_parse_currency_exchange_markets_payload() -> None:
+    payload = {
+        "markets": [
+            {
+                "league": "Runes of Aldur",
+                "market_pair": [
+                    "Metadata/Items/Currency/CurrencyRerollRare",
+                    "Metadata/Items/Currency/CurrencyConvertToX",
+                ],
+                "lowest_ratio": {
+                    "Metadata/Items/Currency/CurrencyRerollRare": 120,
+                    "Metadata/Items/Currency/CurrencyConvertToX": 1,
+                },
+            },
+            {
+                "league": "Runes of Aldur",
+                "market_pair": [
+                    "Metadata/Items/Currency/CurrencyRerollRare",
+                    "Metadata/Items/Currency/CurrencyModValues",
+                ],
+                "lowest_ratio": {
+                    "Metadata/Items/Currency/CurrencyRerollRare": 180,
+                    "Metadata/Items/Currency/CurrencyModValues": 1,
+                },
+            },
+        ]
+    }
+
+    rows = parse_market_rows(payload)
+    lookup = build_price_lookup(rows)
+
+    assert lookup["chaos"] == pytest.approx(1.0)
+    assert lookup["exalt"] == pytest.approx(120.0)
+    assert lookup["divine"] == pytest.approx(180.0)
+
+    converted = convert_currency_amount(payload, amount=1.0, from_currency="exalt", to_currency="chaos")
+    assert converted == pytest.approx(120.0)

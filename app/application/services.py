@@ -23,6 +23,7 @@ from app.domain.filter_profiles import build_score_profile_rules
 from app.domain.market_types import MarketTypeConfig, load_market_type_config
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
+from app.infrastructure.oauth_currency_exchange import OAuthCurrencyExchangeClient
 from app.infrastructure.market_store import MarketItemStatsRecord, SQLiteMarketStore
 from app.market import (
     MarketClient,
@@ -77,12 +78,20 @@ def _parse_snapshot_timestamp(file_path: Path) -> datetime | None:
         return None
 
 
-def _find_latest_snapshot(output_directory: str, league: str, market_type: str) -> tuple[Path, datetime] | None:
+def _find_latest_snapshot(
+    output_directory: str,
+    league: str,
+    market_type: str,
+    source_tag: str | None = None,
+) -> tuple[Path, datetime] | None:
     output_dir = Path(output_directory).expanduser().resolve()
     if not output_dir.exists() or not output_dir.is_dir():
         return None
 
-    prefix = f"{_snapshot_slug(league)}_{_snapshot_slug(market_type)}_"
+    prefix_parts = [_snapshot_slug(league), _snapshot_slug(market_type)]
+    if source_tag:
+        prefix_parts.append(_snapshot_slug(source_tag))
+    prefix = "_".join(prefix_parts) + "_"
     latest_path: Path | None = None
     latest_time: datetime | None = None
     for candidate in output_dir.glob(f"{prefix}*.json"):
@@ -96,6 +105,22 @@ def _find_latest_snapshot(output_directory: str, league: str, market_type: str) 
     if latest_path is None or latest_time is None:
         return None
     return latest_path, latest_time
+
+
+def _resolve_market_source_tag(market_source: str | None) -> str | None:
+    if not market_source:
+        return None
+    normalized = market_source.strip().lower()
+    if not normalized or normalized == "poe_ninja":
+        return None
+    return normalized
+
+
+def _build_market_client(market_source: str, market_type: str) -> MarketClient:
+    normalized_source = market_source.strip().lower()
+    if normalized_source == "oauth_cx" and market_type.strip().lower() == "currency":
+        return OAuthCurrencyExchangeClient.from_environment()
+    return MarketClient()
 
 
 def initialize_filter_manager(filter_dir: str | None) -> tuple[FilterInitResponse, FilterManager | None]:
@@ -367,6 +392,7 @@ def execute_market_workflow(
     recommend_min_change: float = 0.5,
     recommend_min_units: float = 1.0,
     holdings_file: str | None = None,
+    market_source: str = "poe_ninja",
 ) -> MarketWorkflowResponse:
     config = load_market_type_config(MARKET_CONFIG_PATH)
     fetch_types = _resolve_market_types(market_type, config)
@@ -392,11 +418,22 @@ def execute_market_workflow(
 
     with SQLiteMarketStore(db_path=MARKET_DB_PATH) as store:
         store.sync_market_types(config)
+        snapshot_source_tag = _resolve_market_source_tag(market_source)
 
         for configured_type in fetch_types:
             try:
-                client = MarketClient()
-                latest_snapshot = _find_latest_snapshot(market_out_dir, league, configured_type)
+                client = _build_market_client(market_source, configured_type)
+                type_source_tag = (
+                    snapshot_source_tag
+                    if snapshot_source_tag and market_source.strip().lower() == "oauth_cx" and configured_type.strip().lower() == "currency"
+                    else None
+                )
+                latest_snapshot = _find_latest_snapshot(
+                    market_out_dir,
+                    league,
+                    configured_type,
+                    source_tag=type_source_tag,
+                )
                 now_utc = datetime.now(UTC)
                 use_cached_snapshot = False
                 payload: dict
@@ -410,10 +447,28 @@ def execute_market_workflow(
                         use_cached_snapshot = True
                     else:
                         payload = client.fetch_overview(league, configured_type)
-                        snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
+                        if type_source_tag:
+                            snapshot_path = client.save_snapshot(
+                                payload,
+                                market_out_dir,
+                                league,
+                                configured_type,
+                                source_tag=type_source_tag,
+                            )
+                        else:
+                            snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
                 else:
                     payload = client.fetch_overview(league, configured_type)
-                    snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
+                    if type_source_tag:
+                        snapshot_path = client.save_snapshot(
+                            payload,
+                            market_out_dir,
+                            league,
+                            configured_type,
+                            source_tag=type_source_tag,
+                        )
+                    else:
+                        snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
 
                 latest_rows = store.get_latest_market_rows(league, configured_type)
                 if latest_rows:

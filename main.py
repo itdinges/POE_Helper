@@ -1,13 +1,70 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+from pathlib import Path
+from typing import Any
 
 from app.application.services import build_filter, execute_market_workflow, initialize_filter_manager, list_filters
 from app.observability import configure_logging, tail_log_file
 
 
 log = logging.getLogger("poe-helper")
+
+DEFAULT_RUNTIME_SETTINGS: dict[str, Any] = {
+    "list": False,
+    "build": False,
+    "source": None,
+    "output": None,
+    "filter_dir": None,
+    "profile": "mapping",
+    "market": False,
+    "league": "Runes of Aldur",
+    "market_type": "all",
+    "market_out_dir": "data/market",
+    "market_limit": 10,
+    "vendor_file": None,
+    "min_margin": 0.0,
+    "convert": False,
+    "recommend": False,
+    "recommend_min_change": 0.5,
+    "recommend_min_units": 1.0,
+    "from_currency": None,
+    "source_currency": "exalt",
+    "to_currency": None,
+    "amount": 1.0,
+    "flip_route_file": None,
+    "flip_route_name": None,
+    "tail_logs": False,
+    "follow_logs": False,
+    "log_lines": 40,
+    "log_level": "INFO",
+    "log_file": "data/logs/poe_helper.log",
+    "api": False,
+    "api_host": "127.0.0.1",
+    "api_port": 8000,
+    "api_reload": False,
+}
+
+
+def load_runtime_settings(config_path: str | Path | None = None) -> dict[str, Any]:
+    final_path = Path(config_path).expanduser() if config_path else Path("config/settings.json")
+    merged: dict[str, Any] = DEFAULT_RUNTIME_SETTINGS.copy()
+
+    if not final_path.exists():
+        return merged
+
+    try:
+        payload = json.loads(final_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in runtime settings file '{final_path}': {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Runtime settings file '{final_path}' must contain a JSON object.")
+
+    merged.update(payload)
+    return merged
 
 
 def _format_dutch_number(value: float, decimals: int = 3) -> str:
@@ -71,111 +128,118 @@ def _is_risky_free_fall(trend_1h: float | None, trend_12h: float | None, trend_2
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POE 2 helper for local filter management.")
-    parser.add_argument("--list", action="store_true", help="List available filter files")
-    parser.add_argument("--build", action="store_true", help="Build a managed filter from a source filter")
-    parser.add_argument("--source", type=str, help="Source filter filename inside OnlineFilters")
-    parser.add_argument("--output", type=str, help="Output filter filename inside OnlineFilters")
+    parser.add_argument("--config", type=str, default="config/settings.json", help="JSON file with default runtime settings")
+    parser.add_argument("--list", action="store_true", default=argparse.SUPPRESS, help="List available filter files")
+    parser.add_argument("--build", action="store_true", default=argparse.SUPPRESS, help="Build a managed filter from a source filter")
+    parser.add_argument("--source", type=str, default=argparse.SUPPRESS, help="Source filter filename inside OnlineFilters")
+    parser.add_argument("--output", type=str, default=argparse.SUPPRESS, help="Output filter filename inside OnlineFilters")
     parser.add_argument(
         "--dir",
         type=str,
         dest="filter_dir",
-        default=None,
+        default=argparse.SUPPRESS,
         help="Optional local directory to use instead of the default POE2 OnlineFilters path",
     )
     parser.add_argument(
         "--profile",
         type=str,
-        default="mapping",
+        default=argparse.SUPPRESS,
         choices=["mapping", "crafting", "league_start"],
         help="Rule profile to append in managed section",
     )
-    parser.add_argument("--market", action="store_true", help="Fetch poe.ninja exchange data")
+    parser.add_argument("--market", action="store_true", default=argparse.SUPPRESS, help="Fetch poe.ninja exchange data")
     parser.add_argument(
         "--league",
         type=str,
-        default="Runes of Aldur",
+        default=argparse.SUPPRESS,
         help="POE2 league name for market fetch",
     )
     parser.add_argument(
         "--market-type",
         type=str,
-        default="Currency",
+        default=argparse.SUPPRESS,
         help="poe.ninja market type, 'all', or a comma-separated list such as Currency,Fragments",
     )
     parser.add_argument(
         "--market-out-dir",
         type=str,
-        default="data/market",
+        default=argparse.SUPPRESS,
         help="Directory where raw market snapshots are stored",
     )
     parser.add_argument(
         "--market-limit",
         type=int,
-        default=10,
+        default=argparse.SUPPRESS,
         help="How many top market rows to print",
     )
     parser.add_argument(
         "--vendor-file",
         type=str,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Optional JSON file with vendor chaos costs for comparison",
     )
     parser.add_argument(
         "--min-margin",
         type=float,
-        default=0.0,
+        default=argparse.SUPPRESS,
         help="Minimum chaos margin to show in vendor comparison",
     )
-    parser.add_argument("--convert", action="store_true", help="Convert currency amount using market chaos-equivalent rates")
-    parser.add_argument("--recommend", action="store_true", help="Rank alternative currency conversions and show final Divine-equivalent value")
+    parser.add_argument("--convert", action="store_true", default=argparse.SUPPRESS, help="Convert currency amount using market chaos-equivalent rates")
+    parser.add_argument("--recommend", action="store_true", default=argparse.SUPPRESS, help="Rank alternative currency conversions and show final Divine-equivalent value")
     parser.add_argument(
         "--recommend-min-change",
         type=float,
-        default=0.5,
+        default=argparse.SUPPRESS,
         help="Minimum ratio change percent before recommendation becomes buy/sell",
     )
     parser.add_argument(
         "--recommend-min-units",
         type=float,
-        default=1.0,
+        default=argparse.SUPPRESS,
         help="Minimum target units to treat a buy recommendation as actionable",
     )
-    parser.add_argument("--from-currency", type=str, default=None, help="Source currency id or name")
+    parser.add_argument("--from-currency", type=str, default=argparse.SUPPRESS, help="Source currency id or name")
     parser.add_argument(
         "--source-currency",
         type=str,
-        default="exalt",
+        default=argparse.SUPPRESS,
         help="Source currency for recommendation ranking (default: exalt)",
     )
-    parser.add_argument("--to-currency", type=str, default=None, help="Target currency id or name")
-    parser.add_argument("--amount", type=float, default=1.0, help="Amount for conversion, recommendation, or route simulation")
+    parser.add_argument("--to-currency", type=str, default=argparse.SUPPRESS, help="Target currency id or name")
+    parser.add_argument("--amount", type=float, default=argparse.SUPPRESS, help="Amount for conversion, recommendation, or route simulation")
     parser.add_argument(
         "--flip-route-file",
         type=str,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Optional JSON file with multi-step vendor route definitions",
     )
     parser.add_argument(
         "--flip-route-name",
         type=str,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Name of route to evaluate from the route file",
     )
-    parser.add_argument("--tail-logs", action="store_true", help="Print recent backend logs")
-    parser.add_argument("--follow-logs", action="store_true", help="Stream backend logs continuously")
-    parser.add_argument("--log-lines", type=int, default=40, help="Number of log lines to show for --tail-logs")
-    parser.add_argument("--log-level", type=str, default="INFO", help="Log level: DEBUG, INFO, WARNING, ERROR")
+    parser.add_argument("--tail-logs", action="store_true", default=argparse.SUPPRESS, help="Print recent backend logs")
+    parser.add_argument("--follow-logs", action="store_true", default=argparse.SUPPRESS, help="Stream backend logs continuously")
+    parser.add_argument("--log-lines", type=int, default=argparse.SUPPRESS, help="Number of log lines to show for --tail-logs")
+    parser.add_argument("--log-level", type=str, default=argparse.SUPPRESS, help="Log level: DEBUG, INFO, WARNING, ERROR")
     parser.add_argument(
         "--log-file",
         type=str,
-        default="data/logs/poe_helper.log",
+        default=argparse.SUPPRESS,
         help="File path for backend log output",
     )
-    parser.add_argument("--api", action="store_true", help="Start the FastAPI web API server")
-    parser.add_argument("--api-host", type=str, default="127.0.0.1", help="Host address for the API server")
-    parser.add_argument("--api-port", type=int, default=8000, help="Port for the API server")
-    parser.add_argument("--api-reload", action="store_true", help="Enable auto-reload for API development")
-    return parser.parse_args()
+    parser.add_argument("--api", action="store_true", default=argparse.SUPPRESS, help="Start the FastAPI web API server")
+    parser.add_argument("--api-host", type=str, default=argparse.SUPPRESS, help="Host address for the API server")
+    parser.add_argument("--api-port", type=int, default=argparse.SUPPRESS, help="Port for the API server")
+    parser.add_argument("--api-reload", action="store_true", default=argparse.SUPPRESS, help="Enable auto-reload for API development")
+
+    args = parser.parse_args()
+    runtime_settings = load_runtime_settings(getattr(args, "config", "config/settings.json"))
+    for key, value in runtime_settings.items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
+    return args
 
 
 def main() -> None:

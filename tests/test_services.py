@@ -13,6 +13,7 @@ from app.application.services import (
     read_holdings,
     save_holdings,
 )
+from main import load_runtime_settings
 from app.domain.market_types import get_default_market_types, load_market_type_config
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
@@ -93,6 +94,24 @@ def test_save_and_read_holdings_roundtrip(tmp_path: Path) -> None:
     assert read_response.ok is True
     amounts = {item.item_id: item.amount for item in read_response.items}
     assert amounts == {"divine": 7.0, "exalted": 12.5}
+
+
+def test_load_runtime_settings_reads_json(tmp_path: Path) -> None:
+    config_path = tmp_path / "settings.json"
+    config_path.write_text(
+        json.dumps({
+            "league": "Test League",
+            "market_type": "all",
+            "market_limit": 42,
+        }),
+        encoding="utf-8",
+    )
+
+    settings = load_runtime_settings(str(config_path))
+
+    assert settings["league"] == "Test League"
+    assert settings["market_type"] == "all"
+    assert settings["market_limit"] == 42
 
 
 def test_execute_market_workflow_convert_and_flip(monkeypatch) -> None:

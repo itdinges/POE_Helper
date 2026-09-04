@@ -20,7 +20,7 @@ DEFAULT_RUNTIME_SETTINGS: dict[str, Any] = {
     "filter_dir": None,
     "profile": "mapping",
     "market": False,
-    "league": "Runes of Aldur",
+    "league": None,
     "market_type": "all",
     "market_out_dir": "data/market",
     "market_limit": 10,
@@ -269,6 +269,9 @@ def main() -> None:
         return
 
     if args.market:
+        if not args.league:
+            print("Missing league setting. Set 'league' in config/settings.json or pass --league.")
+            return
         log.info("Market workflow started", extra={"league": args.league, "market_type": args.market_type})
         response = execute_market_workflow(
             league=args.league,
@@ -485,6 +488,7 @@ def main() -> None:
                 "2h",
                 "12h",
                 "24h",
+                "Liquidity",
                 "Chaos",
             ]
             trend_rows: list[list[str]] = []
@@ -498,6 +502,7 @@ def main() -> None:
                         f"{_format_dutch_number(row.trend_2h_percent, 2)}%" if row.trend_2h_percent is not None else "n/a",
                         f"{_format_dutch_number(row.trend_12h_percent, 2)}%" if row.trend_12h_percent is not None else "n/a",
                         f"{_format_dutch_number(row.trend_24h_percent, 2)}%" if row.trend_24h_percent is not None else "n/a",
+                        row.liquidity_label or "unknown",
                         _format_dutch_amount(row.latest_chaos_value) if row.latest_chaos_value is not None else "n/a",
                     ]
                 )

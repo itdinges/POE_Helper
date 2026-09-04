@@ -21,7 +21,7 @@ import HoldingsEditor from '../components/dashboard/HoldingsEditor.vue'
 import MarketSnapshotTable from '../components/dashboard/MarketSnapshotTable.vue'
 import TrendHighlights from '../components/dashboard/TrendHighlights.vue'
 
-const league = ref('Runes of Aldur')
+const league = ref('Forbidden Rites')
 const marketTypes = ref<string[]>(['Currency'])
 const selectedMarketType = ref('Currency')
 const marketLimit = ref(12)

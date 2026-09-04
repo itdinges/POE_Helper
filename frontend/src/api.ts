@@ -24,6 +24,8 @@ export type TrendSignal = {
   trend_12h_percent: number | null
   trend_24h_percent: number | null
   latest_chaos_value: number | null
+  liquidity_score: number | null
+  liquidity_label: string | null
 }
 
 export type MarketRow = {

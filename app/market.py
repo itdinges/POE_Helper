@@ -30,6 +30,8 @@ class MarketRow:
     chaos_value: float
     primary_value: float
     image_path: str | None = None
+    volume_primary_value: float | None = None
+    sparkline_data: list[float] = None
 
 
 @dataclass
@@ -457,6 +459,23 @@ def build_price_lookup(rows: list[MarketRow]) -> dict[str, float]:
     return lookup
 
 
+def _extract_sparkline_data(line: dict[str, Any]) -> list[float]:
+    sparkline = line.get("sparkline")
+    if not isinstance(sparkline, dict):
+        return []
+
+    data = sparkline.get("data")
+    if not isinstance(data, list):
+        return []
+
+    parsed: list[float] = []
+    for item in data:
+        value = _to_float(item)
+        if value is not None:
+            parsed.append(value)
+    return parsed
+
+
 def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
     name_lookup = _build_name_lookup(payload)
     image_lookup = _build_image_lookup(payload)
@@ -481,6 +500,9 @@ def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
                 continue
             chaos_value = legacy_chaos
 
+        volume_primary_value = _to_float(line.get("volumePrimaryValue"))
+        sparkline_data = _extract_sparkline_data(line)
+
         rows.append(
             MarketRow(
                 id=row_id,
@@ -488,6 +510,8 @@ def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
                 image_path=image_lookup.get(row_id),
                 chaos_value=chaos_value,
                 primary_value=primary_value,
+                volume_primary_value=volume_primary_value,
+                sparkline_data=sparkline_data,
             )
         )
 

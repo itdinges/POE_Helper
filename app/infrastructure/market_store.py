@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,6 +21,8 @@ class MarketRowRecord:
     fetched_at: datetime
     vendor_value: float | None = None
     image_path: str | None = None
+    volume_primary_value: float | None = None
+    sparkline_data: list[float] | None = None
 
 
 @dataclass(slots=True)
@@ -42,6 +45,8 @@ class MarketItemStatsRecord:
     trend_12h_percent: float | None = None
     trend_24h_percent: float | None = None
     short_term_reversal: str = "none"
+    liquidity_score: float | None = None
+    liquidity_label: str | None = None
     computed_at: datetime | None = None
 
 
@@ -105,6 +110,8 @@ class SQLiteMarketStore:
                 chaos_value REAL NOT NULL,
                 primary_value REAL NOT NULL,
                 vendor_value REAL,
+                volume_primary_value REAL,
+                sparkline_json TEXT,
                 fetched_at TEXT NOT NULL,
                 snapshot_id INTEGER NOT NULL,
                 UNIQUE(league, market_type, item_id, fetched_at),
@@ -142,6 +149,8 @@ class SQLiteMarketStore:
                 trend_12h_percent REAL,
                 trend_24h_percent REAL,
                 short_term_reversal TEXT NOT NULL DEFAULT 'none',
+                liquidity_score REAL,
+                liquidity_label TEXT,
                 computed_at TEXT NOT NULL,
                 UNIQUE(league, market_type, item_id)
             )
@@ -182,8 +191,13 @@ class SQLiteMarketStore:
             for row in self._conn.execute("PRAGMA table_info(market_rows)").fetchall()
         }
 
-        if "image_path" not in existing_columns:
-            self._conn.execute("ALTER TABLE market_rows ADD COLUMN image_path TEXT")
+        for column_name, column_type in {
+            "image_path": "TEXT",
+            "volume_primary_value": "REAL",
+            "sparkline_json": "TEXT",
+        }.items():
+            if column_name not in existing_columns:
+                self._conn.execute(f"ALTER TABLE market_rows ADD COLUMN {column_name} {column_type}")
 
     def _ensure_market_item_stats_schema(self) -> None:
         if self._conn is None:
@@ -201,6 +215,8 @@ class SQLiteMarketStore:
             "trend_12h_percent": "REAL",
             "trend_24h_percent": "REAL",
             "short_term_reversal": "TEXT NOT NULL DEFAULT 'none'",
+            "liquidity_score": "REAL",
+            "liquidity_label": "TEXT",
             "computed_at": "TEXT NOT NULL DEFAULT ''",
         }
 
@@ -273,8 +289,8 @@ class SQLiteMarketStore:
         self._conn.executemany(
             """
             INSERT OR REPLACE INTO market_rows (
-                league, market_type, item_id, item_name, image_path, chaos_value, primary_value, vendor_value, fetched_at, snapshot_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                league, market_type, item_id, item_name, image_path, chaos_value, primary_value, vendor_value, volume_primary_value, sparkline_json, fetched_at, snapshot_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -286,6 +302,8 @@ class SQLiteMarketStore:
                     row.chaos_value,
                     row.primary_value,
                     row.vendor_value,
+                    row.volume_primary_value,
+                    json.dumps(row.sparkline_data or []),
                     row.fetched_at.isoformat(timespec="seconds"),
                     snapshot_id,
                 )
@@ -297,6 +315,14 @@ class SQLiteMarketStore:
     def reset_database(self) -> None:
         if self._conn is None:
             raise RuntimeError("Database connection is closed")
+
+        market_dir = self.db_path.parent
+        for pattern in ("*.json", "*.db", "*.sqlite", "*.sqlite3"):
+            for path in market_dir.glob(pattern):
+                if path.resolve() == self.db_path.resolve():
+                    continue
+                if path.is_file():
+                    path.unlink()
 
         self._conn.executescript(
             """
@@ -421,7 +447,7 @@ class SQLiteMarketStore:
 
         rows = self._conn.execute(
             """
-            SELECT item_id, item_name, image_path, chaos_value, fetched_at
+            SELECT item_id, item_name, image_path, chaos_value, fetched_at, volume_primary_value, sparkline_json
             FROM market_rows
             WHERE league = ? AND market_type = ?
             ORDER BY item_id, fetched_at ASC
@@ -477,6 +503,8 @@ class SQLiteMarketStore:
                 trend_2h=trend_2h,
                 trend_24h=trend_24h,
             )
+            liquidity_score = self._compute_liquidity_score(history)
+            liquidity_label = self._classify_liquidity(liquidity_score)
 
             insert_rows.append(
                 {
@@ -501,6 +529,8 @@ class SQLiteMarketStore:
                     "trend_24h_percent": trend_24h,
                     "trend_1d_percent": trend_24h,
                     "short_term_reversal": reversal,
+                    "liquidity_score": liquidity_score,
+                    "liquidity_label": liquidity_label,
                     "computed_at": computed_at,
                 }
             )
@@ -531,6 +561,8 @@ class SQLiteMarketStore:
             "trend_24h_percent",
             "trend_1d_percent",
             "short_term_reversal",
+            "liquidity_score",
+            "liquidity_label",
             "computed_at",
         ]
         insert_columns = [column for column in insert_columns if column in existing_columns]
@@ -576,6 +608,8 @@ class SQLiteMarketStore:
                     trend_12h_percent=row["trend_12h_percent"],
                     trend_24h_percent=row["trend_24h_percent"],
                     short_term_reversal=str(row["short_term_reversal"] or "none"),
+                    liquidity_score=row["liquidity_score"] if "liquidity_score" in row.keys() else None,
+                    liquidity_label=row["liquidity_label"] if "liquidity_label" in row.keys() else None,
                     computed_at=computed_at,
                 )
             )
@@ -595,6 +629,57 @@ class SQLiteMarketStore:
 
         latest_value = float(history[-1]["chaos_value"])
         return ((latest_value - baseline_value) / baseline_value) * 100.0
+
+    @staticmethod
+    def _compute_liquidity_score(history: list[sqlite3.Row]) -> float | None:
+        if not history:
+            return None
+
+        latest_value = float(history[-1]["chaos_value"])
+        if latest_value <= 0:
+            return None
+
+        volume_values: list[float] = []
+        sparkline_values: list[float] = []
+        for row in history:
+            volume_value = row["volume_primary_value"] if "volume_primary_value" in row.keys() and row["volume_primary_value"] is not None else None
+            if volume_value is not None:
+                volume_values.append(float(volume_value))
+
+            sparkline_raw = row["sparkline_json"] if "sparkline_json" in row.keys() and row["sparkline_json"] else None
+            if sparkline_raw:
+                try:
+                    parsed = json.loads(sparkline_raw)
+                    if isinstance(parsed, list):
+                        sparkline_values.extend(float(item) for item in parsed if isinstance(item, (int, float)))
+                except (TypeError, ValueError):
+                    pass
+
+        volume_score = 0.0
+        if volume_values:
+            volume_mean = sum(volume_values) / len(volume_values)
+            volume_score = min(1.0, volume_mean / max(1.0, latest_value * 1.25))
+
+        trend_stability = 0.0
+        if len(sparkline_values) >= 3:
+            recent = sparkline_values[-3:]
+            mean_abs = sum(abs(value) for value in recent) / len(recent)
+            trend_stability = min(1.0, mean_abs / max(1.0, abs(latest_value) * 0.12))
+
+        combined = (volume_score * 0.7) + (trend_stability * 0.3)
+        return round(max(0.0, min(1.0, combined)), 3)
+
+    @staticmethod
+    def _classify_liquidity(score: float | None) -> str | None:
+        if score is None:
+            return None
+        if score >= 0.7:
+            return "strong"
+        if score >= 0.4:
+            return "moderate"
+        if score >= 0.2:
+            return "weak"
+        return "thin"
 
     @staticmethod
     def _classify_short_term_reversal(

@@ -311,6 +311,8 @@ def _build_reversal_highlights(
             trend_12h_percent=row.trend_12h_percent,
             trend_24h_percent=row.trend_24h_percent,
             latest_chaos_value=row.latest_chaos_value,
+            liquidity_score=row.liquidity_score,
+            liquidity_label=row.liquidity_label,
         )
         for row in top
     ]

@@ -1,5 +1,6 @@
 {
-  "league": "Runes of Aldur",
+  "old_league": "Runes of Aldur",
+  "league": "Forbidden Rites",
   "market_type": "all",
   "market_out_dir": "data/market",
   "market_limit": 10,

@@ -25,6 +25,8 @@ def normalize_market_rows_for_store(
                 image_path=row.image_path,
                 chaos_value=float(row.chaos_value),
                 primary_value=float(row.primary_value),
+                volume_primary_value=row.volume_primary_value,
+                sparkline_data=row.sparkline_data or [],
                 fetched_at=fetched_at,
                 vendor_value=None,
             )

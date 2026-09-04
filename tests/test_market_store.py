@@ -90,6 +90,44 @@ def test_market_store_reset_database_clears_rows_and_catalog(tmp_path) -> None:
     assert store.get_market_types() == []
 
 
+def test_market_store_reset_database_clears_stale_snapshot_files_and_sibling_db(tmp_path) -> None:
+    db_path = tmp_path / "poe_market.db"
+    stale_snapshot = tmp_path / "Runes_of_Aldur_Currency_20260904T085745Z.json"
+    stale_snapshot.write_text('{"lines": []}', encoding="utf-8")
+    stale_db = tmp_path / "dev_reset_test.db"
+    stale_db.write_text("stale", encoding="utf-8")
+
+    store = SQLiteMarketStore(db_path=str(db_path))
+    try:
+        store.save_market_rows(
+            [
+                MarketRowRecord(
+                    league="Runes of Aldur",
+                    market_type="Currency",
+                    item_id="wisdom",
+                    item_name="Scroll of Wisdom",
+                    chaos_value=0.25,
+                    primary_value=1.0,
+                    fetched_at=datetime(2026, 8, 29, 12, 0, 0),
+                )
+            ]
+        )
+        store.reset_database()
+    finally:
+        store.close()
+
+    assert db_path.exists()
+    assert not stale_snapshot.exists()
+    assert not stale_db.exists()
+
+    reopened = SQLiteMarketStore(db_path=str(db_path))
+    try:
+        assert reopened.get_latest_market_rows("Runes of Aldur", "Currency") == []
+        assert reopened.get_market_types() == []
+    finally:
+        reopened.close()
+
+
 def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
     db_path = tmp_path / "market.db"
     store = SQLiteMarketStore(db_path=str(db_path))
@@ -104,6 +142,8 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             image_path="/gen/image/divine.png",
             chaos_value=120.0,
             primary_value=120.0,
+            volume_primary_value=50.0,
+            sparkline_data=[-5.0, -2.0, 0.0, 2.0, 3.0, 4.0, 6.0],
             fetched_at=now - timedelta(hours=3),
         ),
         MarketRowRecord(
@@ -114,6 +154,8 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             image_path="/gen/image/divine.png",
             chaos_value=90.0,
             primary_value=90.0,
+            volume_primary_value=40.0,
+            sparkline_data=[-5.0, -3.0, -1.0, 2.0, 1.0, 2.0, 4.0],
             fetched_at=now - timedelta(hours=2),
         ),
         MarketRowRecord(
@@ -124,6 +166,8 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             image_path="/gen/image/divine.png",
             chaos_value=110.0,
             primary_value=110.0,
+            volume_primary_value=80.0,
+            sparkline_data=[-4.0, -1.0, 0.0, 2.0, 5.0, 6.5, 8.0],
             fetched_at=now,
         ),
     ]
@@ -140,6 +184,8 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
     assert stats[0].trend_12h_percent is None
     assert stats[0].trend_24h_percent is None
     assert stats[0].short_term_reversal == "none"
+    assert stats[0].liquidity_label in {"strong", "moderate"}
+    assert stats[0].liquidity_score is not None
     assert stats[0].image_path == "/gen/image/divine.png"
 
 

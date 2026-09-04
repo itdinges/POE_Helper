@@ -90,6 +90,8 @@ class TrendSignalView:
     trend_12h_percent: float | None = None
     trend_24h_percent: float | None = None
     latest_chaos_value: float | None = None
+    liquidity_score: float | None = None
+    liquidity_label: str | None = None
 
 
 @dataclass

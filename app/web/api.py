@@ -43,7 +43,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/market/latest")
     def latest_market(
-        league: str = Query("Runes of Aldur"),
+        league: str = Query("Forbidden Rites"),
         market_type: str = Query("Currency"),
         limit: int = Query(10, ge=1, le=100),
     ) -> dict[str, object]:
@@ -55,7 +55,7 @@ def create_app() -> FastAPI:
     @app.get("/api/market/history/{item_id}")
     def item_history(
         item_id: str,
-        league: str = Query("Runes of Aldur"),
+        league: str = Query("Forbidden Rites"),
         market_type: str = Query("Currency"),
     ) -> dict[str, object]:
         history = read_market_item_history(league=league, market_type=market_type, item_id=item_id)
@@ -65,7 +65,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/market/refresh")
     def refresh_market(
-        league: str = Query("Runes of Aldur"),
+        league: str = Query("Forbidden Rites"),
         market_type: str = Query("all"),
         market_out_dir: str = Query("data/market"),
         market_limit: int = Query(10, ge=1, le=100),
@@ -94,7 +94,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/holdings")
     def get_holdings(
-        league: str = Query("Runes of Aldur"),
+        league: str = Query("Forbidden Rites"),
         market_type: str = Query("Currency"),
     ) -> dict[str, object]:
         response = read_holdings(league=league, market_type=market_type)
@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
     def post_holdings(
         payload: dict[str, object] = Body(...),
     ) -> dict[str, object]:
-        league = str(payload.get("league") or "Runes of Aldur").strip() or "Runes of Aldur"
+        league = str(payload.get("league") or "Forbidden Rites").strip() or "Forbidden Rites"
         market_type = str(payload.get("market_type") or "Currency").strip() or "Currency"
         items = payload.get("items")
         if not isinstance(items, list):

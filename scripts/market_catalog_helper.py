@@ -23,10 +23,8 @@ def _print_section(title: str) -> None:
 def _load_configured_types() -> dict[str, list[str]]:
     config = load_market_type_config(CONFIG_PATH)
     return {
-        "default": get_market_types_for_category(config, "default"),
-        "optional": get_market_types_for_category(config, "optional"),
+        "items": get_market_types_for_category(config, "items"),
         "progression": get_market_types_for_category(config, "progression"),
-        "equipment": get_market_types_for_category(config, "equipment"),
     }
 
 
@@ -50,7 +48,7 @@ def main() -> None:
     counts = _db_counts()
 
     _print_section("Configured market fetch types")
-    for category in ("default", "optional", "progression", "equipment"):
+    for category in ("items", "progression"):
         names = configured[category]
         if not names:
             print(f"{category}: none")
@@ -62,7 +60,7 @@ def main() -> None:
         print("No market rows found in the SQLite database yet.")
         return
 
-    for category in ("default", "optional", "progression", "equipment"):
+    for category in ("items", "progression"):
         names = configured[category]
         if not names:
             continue

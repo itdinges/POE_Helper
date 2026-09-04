@@ -5,7 +5,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.application.services import read_market_item_history, read_market_snapshot
+from app.application.services import read_holdings, read_market_item_history, read_market_snapshot
+from app.contracts.responses import MarketWorkflowResponse
 from app.infrastructure.market_store import MarketRowRecord, SQLiteMarketStore
 from app.web.api import create_app
 
@@ -95,3 +96,56 @@ def test_fastapi_endpoints(tmp_path: Path, monkeypatch) -> None:
     )
     assert history_response.status_code == 200
     assert history_response.json()["item_name"] == "Divine Orb"
+
+
+def test_holdings_endpoints(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "poe_market.db"
+    _seed_market_data(db_path)
+
+    monkeypatch.setattr("app.web.api.read_holdings", lambda **kwargs: read_holdings(db_path=str(db_path), **kwargs))
+    from app.application.services import save_holdings as save_holdings_service
+
+    monkeypatch.setattr("app.web.api.save_holdings", lambda **kwargs: save_holdings_service(db_path=str(db_path), **kwargs))
+
+    app = create_app()
+    client = TestClient(app)
+
+    save_payload = {
+        "league": "Runes of Aldur",
+        "market_type": "Currency",
+        "items": [
+            {"item_id": "chaos-orb", "item_name": "Chaos Orb", "amount": 125},
+            {"item_id": "divine-orb", "item_name": "Divine Orb", "amount": 4.5},
+        ],
+    }
+    save_response = client.post("/api/holdings", json=save_payload)
+    assert save_response.status_code == 200
+    assert save_response.json()["ok"] is True
+
+    get_response = client.get("/api/holdings", params={"league": "Runes of Aldur", "market_type": "Currency"})
+
+    assert get_response.status_code == 200
+    payload = get_response.json()
+    assert payload["ok"] is True
+    amount_map = {item["item_id"]: item["amount"] for item in payload["items"]}
+    assert amount_map["chaos-orb"] == 125
+    assert amount_map["divine-orb"] == 4.5
+
+
+def test_refresh_market_defaults_to_all_types(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_execute_market_workflow(**kwargs):
+        captured.update(kwargs)
+        return MarketWorkflowResponse(ok=True, market_data_source="refetch")
+
+    monkeypatch.setattr("app.web.api.execute_market_workflow", fake_execute_market_workflow)
+
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.post("/api/market/refresh", params={"league": "Runes of Aldur"})
+
+    assert response.status_code == 200
+    assert captured["market_type"] == "all"
+    assert captured["recommend"] is False

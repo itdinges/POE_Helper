@@ -45,6 +45,28 @@ class MarketItemStatsRecord:
     computed_at: datetime | None = None
 
 
+@dataclass(slots=True)
+class HoldingRecord:
+    league: str
+    market_type: str
+    item_id: str
+    item_name: str
+    amount: float
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class MarketItemHoldingRecord:
+    league: str
+    market_type: str
+    item_id: str
+    item_name: str
+    image_path: str | None
+    latest_chaos_value: float
+    amount: float
+    updated_at: datetime | None
+
+
 class SQLiteMarketStore:
     def __init__(self, db_path: str | Path = "data/market/poe_market.db") -> None:
         self.db_path = Path(db_path).expanduser().resolve()
@@ -131,6 +153,23 @@ class SQLiteMarketStore:
         )
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_market_type_catalog_category ON market_type_catalog(category, enabled)"
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS holdings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league TEXT NOT NULL,
+                market_type TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                UNIQUE(league, market_type, item_id)
+            )
+            """
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_holdings_scope ON holdings(league, market_type, item_name)"
         )
         self._conn.commit()
 
@@ -265,11 +304,116 @@ class SQLiteMarketStore:
             DELETE FROM market_snapshots;
             DELETE FROM market_item_stats;
             DELETE FROM market_type_catalog;
+            DELETE FROM holdings;
             DELETE FROM sqlite_sequence
-            WHERE name IN ('market_rows', 'market_snapshots', 'market_item_stats', 'market_type_catalog');
+            WHERE name IN ('market_rows', 'market_snapshots', 'market_item_stats', 'market_type_catalog', 'holdings');
             """
         )
         self._conn.commit()
+
+    def upsert_holding(self, holding: HoldingRecord) -> None:
+        self.upsert_holdings([holding])
+
+    def upsert_holdings(self, holdings: Iterable[HoldingRecord]) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        rows = list(holdings)
+        if not rows:
+            return
+
+        self._conn.executemany(
+            """
+            INSERT INTO holdings (league, market_type, item_id, item_name, amount, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(league, market_type, item_id)
+            DO UPDATE SET
+                item_name = excluded.item_name,
+                amount = excluded.amount,
+                updated_at = excluded.updated_at
+            """,
+            [
+                (
+                    row.league,
+                    row.market_type,
+                    row.item_id,
+                    row.item_name,
+                    row.amount,
+                    row.updated_at.isoformat(timespec="seconds"),
+                )
+                for row in rows
+            ],
+        )
+        self._conn.commit()
+
+    def get_holdings(self, league: str, market_type: str) -> list[HoldingRecord]:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        rows = self._conn.execute(
+            """
+            SELECT league, market_type, item_id, item_name, amount, updated_at
+            FROM holdings
+            WHERE league = ? AND market_type = ?
+            ORDER BY item_name
+            """,
+            (league, market_type),
+        ).fetchall()
+
+        return [
+            HoldingRecord(
+                league=row["league"],
+                market_type=row["market_type"],
+                item_id=row["item_id"],
+                item_name=row["item_name"],
+                amount=float(row["amount"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
+    def get_market_item_holdings(self, league: str, market_type: str) -> list[MarketItemHoldingRecord]:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        rows = self._conn.execute(
+            """
+            SELECT
+                s.league,
+                s.market_type,
+                s.item_id,
+                s.item_name,
+                s.image_path,
+                s.latest_chaos_value,
+                COALESCE(h.amount, 0) AS amount,
+                h.updated_at AS updated_at
+            FROM market_item_stats s
+            LEFT JOIN holdings h
+              ON h.league = s.league
+             AND h.market_type = s.market_type
+             AND h.item_id = s.item_id
+            WHERE s.league = ? AND s.market_type = ?
+            ORDER BY s.item_name
+            """,
+            (league, market_type),
+        ).fetchall()
+
+        parsed: list[MarketItemHoldingRecord] = []
+        for row in rows:
+            updated_at_raw = row["updated_at"]
+            parsed.append(
+                MarketItemHoldingRecord(
+                    league=row["league"],
+                    market_type=row["market_type"],
+                    item_id=row["item_id"],
+                    item_name=row["item_name"],
+                    image_path=row["image_path"],
+                    latest_chaos_value=float(row["latest_chaos_value"]),
+                    amount=float(row["amount"]),
+                    updated_at=datetime.fromisoformat(updated_at_raw) if isinstance(updated_at_raw, str) else None,
+                )
+            )
+        return parsed
 
     def refresh_market_item_stats(self, league: str, market_type: str) -> int:
         if self._conn is None:

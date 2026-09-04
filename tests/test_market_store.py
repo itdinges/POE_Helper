@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.infrastructure.market_store import MarketRowRecord, SQLiteMarketStore
+from app.infrastructure.market_store import HoldingRecord, MarketRowRecord, SQLiteMarketStore
 
 
 def test_market_store_persists_and_reads_latest_rows(tmp_path) -> None:
@@ -249,3 +249,47 @@ def test_market_store_detects_bullish_reversal_when_24h_down_but_1h_2h_up(tmp_pa
     assert stats[0].trend_1h_percent > 0
     assert stats[0].trend_2h_percent > 0
     assert stats[0].short_term_reversal == "bullish_reversal"
+
+
+def test_market_store_persists_holdings_and_joins_stats(tmp_path) -> None:
+    db_path = tmp_path / "market.db"
+    store = SQLiteMarketStore(db_path=str(db_path))
+
+    now = datetime(2026, 9, 1, 12, 0, 0)
+    store.save_market_rows(
+        [
+            MarketRowRecord(
+                league="Runes of Aldur",
+                market_type="Currency",
+                item_id="divine",
+                item_name="Divine Orb",
+                image_path="/gen/image/divine.png",
+                chaos_value=140.0,
+                primary_value=140.0,
+                fetched_at=now,
+            )
+        ]
+    )
+    store.refresh_market_item_stats("Runes of Aldur", "Currency")
+
+    store.upsert_holding(
+        HoldingRecord(
+            league="Runes of Aldur",
+            market_type="Currency",
+            item_id="divine",
+            item_name="Divine Orb",
+            amount=25.0,
+            updated_at=now,
+        )
+    )
+
+    holdings = store.get_holdings("Runes of Aldur", "Currency")
+    assert len(holdings) == 1
+    assert holdings[0].item_id == "divine"
+    assert holdings[0].amount == pytest.approx(25.0)
+
+    joined_rows = store.get_market_item_holdings("Runes of Aldur", "Currency")
+    assert len(joined_rows) == 1
+    assert joined_rows[0].item_id == "divine"
+    assert joined_rows[0].amount == pytest.approx(25.0)
+    assert joined_rows[0].latest_chaos_value == pytest.approx(140.0)

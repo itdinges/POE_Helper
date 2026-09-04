@@ -68,6 +68,25 @@ export type MarketHistory = {
   error?: string | null
 }
 
+export type HoldingItem = {
+  league: string
+  market_type: string
+  item_id: string
+  item_name: string
+  amount: number
+  latest_chaos_value: number | null
+  icon_url: string | null
+  updated_at: string | null
+}
+
+export type HoldingsResponse = {
+  ok: boolean
+  league: string
+  market_type: string
+  items: HoldingItem[]
+  error?: string | null
+}
+
 const apiBase = ''
 
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -100,8 +119,18 @@ export function getLatestMarket(league: string, marketType: string, limit: numbe
   return readJson<MarketSnapshot>(`/api/market/latest?${params.toString()}`)
 }
 
-export function refreshMarket(league: string, marketType: string, limit: number): Promise<MarketSnapshot> {
-  const params = new URLSearchParams({ league, market_type: marketType, market_limit: String(limit) })
+export function refreshMarket(
+  league: string,
+  marketType: string,
+  limit: number,
+  recommend = false
+): Promise<MarketSnapshot> {
+  const params = new URLSearchParams({
+    league,
+    market_type: marketType,
+    market_limit: String(limit),
+    recommend: String(recommend),
+  })
   return readJson<MarketSnapshot>(`/api/market/refresh?${params.toString()}`, {
     method: 'POST',
   })
@@ -110,4 +139,24 @@ export function refreshMarket(league: string, marketType: string, limit: number)
 export function getItemHistory(league: string, marketType: string, itemId: string): Promise<MarketHistory> {
   const params = new URLSearchParams({ league, market_type: marketType })
   return readJson<MarketHistory>(`/api/market/history/${encodeURIComponent(itemId)}?${params.toString()}`)
+}
+
+export function getHoldings(league: string, marketType: string): Promise<HoldingsResponse> {
+  const params = new URLSearchParams({ league, market_type: marketType })
+  return readJson<HoldingsResponse>(`/api/holdings?${params.toString()}`)
+}
+
+export function saveHoldings(
+  league: string,
+  marketType: string,
+  items: Array<{ item_id: string; item_name: string; amount: number }>
+): Promise<HoldingsResponse> {
+  return readJson<HoldingsResponse>('/api/holdings', {
+    method: 'POST',
+    body: JSON.stringify({
+      league,
+      market_type: marketType,
+      items,
+    }),
+  })
 }

@@ -10,7 +10,8 @@ from app.application.services import (
     execute_market_workflow,
     initialize_filter_manager,
     list_filters,
-    load_holdings,
+    read_holdings,
+    save_holdings,
 )
 from app.domain.market_types import get_default_market_types, load_market_type_config
 from app.domain.scoring import MarketItemScore
@@ -67,38 +68,31 @@ def test_build_filter_missing_source_file(tmp_path: Path) -> None:
     assert "Filter not found" in response.error
 
 
-def test_load_holdings_from_plain_map(tmp_path: Path) -> None:
-    holdings_file = tmp_path / "holdings.json"
-    holdings_file.write_text(json.dumps({"divine": 3, "exalt": "2.5"}), encoding="utf-8")
+def test_save_and_read_holdings_roundtrip(tmp_path: Path) -> None:
+    db_path = tmp_path / "poe_market.db"
 
-    parsed = load_holdings(str(holdings_file))
-
-    assert parsed == {"divine": 3.0, "exalt": 2.5}
-
-
-def test_load_holdings_from_stash_payload(tmp_path: Path) -> None:
-    holdings_file = tmp_path / "stash_payload.json"
-    holdings_file.write_text(
-        json.dumps(
-            {
-                "numTabs": 1,
-                "items": [
-                    {"typeLine": "Exalted Orb", "stackSize": 8},
-                    {"typeLine": "Exalted Orb", "stackSize": 5},
-                    {"baseType": "Divine Orb", "stackSize": "2"},
-                    {"name": "Chaos Orb"},
-                ],
-            }
-        ),
-        encoding="utf-8",
+    save_response = save_holdings(
+        league="Runes of Aldur",
+        market_type="Currency",
+        items=[
+            {"item_id": "divine", "item_name": "Divine Orb", "amount": 7},
+            {"item_id": "exalted", "item_name": "Exalted Orb", "amount": "12.5"},
+        ],
+        db_path=str(db_path),
     )
 
-    parsed = load_holdings(str(holdings_file))
+    assert save_response.ok is True
+    assert len(save_response.items) == 2
 
-    assert parsed is not None
-    assert parsed["Exalted Orb"] == 13.0
-    assert parsed["Divine Orb"] == 2.0
-    assert parsed["Chaos Orb"] == 1.0
+    read_response = read_holdings(
+        league="Runes of Aldur",
+        market_type="Currency",
+        db_path=str(db_path),
+    )
+
+    assert read_response.ok is True
+    amounts = {item.item_id: item.amount for item in read_response.items}
+    assert amounts == {"divine": 7.0, "exalted": 12.5}
 
 
 def test_execute_market_workflow_convert_and_flip(monkeypatch) -> None:
@@ -266,7 +260,7 @@ def test_execute_market_workflow_fetch_error(monkeypatch, tmp_path: Path) -> Non
 
 def test_execute_market_workflow_fetches_default_configured_types(monkeypatch, tmp_path) -> None:
     config = load_market_type_config("config/market_types.json")
-    expected_types = get_default_market_types("config/market_types.json")
+    expected_types = [entry.fetch_name for entry in config.entries() if entry.category == "items" and entry.enabled]
     calls: list[str] = []
 
     class FakeMarketClient:
@@ -323,8 +317,131 @@ def test_execute_market_workflow_fetches_default_configured_types(monkeypatch, t
 
     assert response.ok is True
     assert set(calls) == set(expected_types)
-    assert set(calls).issubset(set(config.all_types))
     assert response.snapshot_path is not None
+
+
+def test_execute_market_workflow_uses_fetch_id_for_display_market_type(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class FakeMarketClient:
+        def fetch_overview(self, league: str, market_type: str):
+            calls.append(market_type)
+            return {"lines": [{"id": "lineage-support-gems", "primaryValue": 1.0}]}
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
+            return Path(output_directory) / f"{market_type}.json"
+
+    class FakeStore:
+        def __init__(self, db_path):
+            self.db_path = db_path
+
+        def sync_market_types(self, config, *, source="config"):
+            return []
+
+        def save_market_rows(self, rows):
+            return None
+
+        def get_latest_market_rows(self, league: str, market_type: str):
+            return []
+
+        def refresh_market_item_stats(self, league: str, market_type: str):
+            return 0
+
+        def get_market_item_stats(self, league: str, market_type: str):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
+    monkeypatch.setattr("app.application.services.SQLiteMarketStore", FakeStore)
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="Lineage Gems",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+    )
+
+    assert response.ok is True
+    assert calls == ["LineageSupportGems"]
+
+
+def test_execute_market_workflow_uses_stash_endpoint_for_progression_types(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class FakeMarketClient:
+        def __init__(self):
+            self.base_url = ""
+
+        def fetch_overview(self, league: str, market_type: str):
+            calls.append((market_type, self.base_url))
+            return {"lines": [{"id": "unique-tablet", "primaryValue": 1.0}]}
+
+        def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
+            return Path(output_directory) / f"{market_type}.json"
+
+    class FakeStore:
+        def __init__(self, db_path):
+            self.db_path = db_path
+
+        def sync_market_types(self, config, *, source="config"):
+            return []
+
+        def save_market_rows(self, rows):
+            return None
+
+        def get_latest_market_rows(self, league: str, market_type: str):
+            return []
+
+        def refresh_market_item_stats(self, league: str, market_type: str):
+            return 0
+
+        def get_market_item_stats(self, league: str, market_type: str):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr("app.application.services.MarketClient", FakeMarketClient)
+    monkeypatch.setattr("app.application.services.SQLiteMarketStore", FakeStore)
+
+    response = execute_market_workflow(
+        league="Runes of Aldur",
+        market_type="Unique Tablets",
+        market_out_dir=str(tmp_path),
+        market_limit=10,
+        vendor_file=None,
+        min_margin=0.0,
+        convert=False,
+        from_currency=None,
+        to_currency=None,
+        amount=1.0,
+        flip_route_file=None,
+        flip_route_name=None,
+    )
+
+    assert response.ok is True
+    assert calls == [
+        (
+            "UniqueTablets",
+            "https://poe.ninja/poe2/api/economy/stash/current/item/overview",
+        )
+    ]
 
 
 def test_execute_market_workflow_fetches_multiple_requested_types(monkeypatch, tmp_path) -> None:
@@ -388,7 +505,7 @@ def test_execute_market_workflow_fetches_multiple_requested_types(monkeypatch, t
 
     assert response.ok is True
     assert calls == ["Currency", "Fragments"]
-    assert response.snapshot_path == str(tmp_path / "Currency.json")
+    assert response.snapshot_path == str(tmp_path / "Currency_exchange.json")
     assert len(response.top_entries) == 2
 
 
@@ -425,7 +542,7 @@ def test_build_score_profile_filter_generates_managed_block(tmp_path: Path) -> N
 def test_execute_market_workflow_uses_fresh_cached_snapshot(monkeypatch, tmp_path: Path) -> None:
     now = datetime.now(UTC)
     ts = now.strftime("%Y%m%dT%H%M%SZ")
-    snapshot_path = tmp_path / f"runes-of-aldur_currency_{ts}.json"
+    snapshot_path = tmp_path / f"runes-of-aldur_currency-exchange_{ts}.json"
     snapshot_payload = {
         "core": {
             "items": [
@@ -476,7 +593,7 @@ def test_execute_market_workflow_uses_fresh_cached_snapshot(monkeypatch, tmp_pat
 
 def test_execute_market_workflow_refetches_when_snapshot_stale(monkeypatch, tmp_path: Path) -> None:
     stale_ts = (datetime.now(UTC) - timedelta(hours=2)).strftime("%Y%m%dT%H%M%SZ")
-    stale_snapshot_path = tmp_path / f"runes-of-aldur_currency_{stale_ts}.json"
+    stale_snapshot_path = tmp_path / f"runes-of-aldur_currency-exchange_{stale_ts}.json"
     stale_snapshot_path.write_text(json.dumps({"lines": []}), encoding="utf-8")
 
     calls = {"fetch": 0, "save": 0}
@@ -504,7 +621,7 @@ def test_execute_market_workflow_refetches_when_snapshot_stale(monkeypatch, tmp_
         def save_snapshot(self, payload, output_directory: str, league: str, market_type: str):
             calls["save"] += 1
             fresh = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            new_path = Path(output_directory) / f"runes-of-aldur_currency_{fresh}.json"
+            new_path = Path(output_directory) / f"runes-of-aldur_currency-exchange_{fresh}.json"
             new_path.write_text(json.dumps(payload), encoding="utf-8")
             return new_path
 

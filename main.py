@@ -140,12 +140,6 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Minimum target units to treat a buy recommendation as actionable",
     )
-    parser.add_argument(
-        "--holdings-file",
-        type=str,
-        default=None,
-        help="Optional JSON holdings file: plain map or stash-style payload with items[]",
-    )
     parser.add_argument("--from-currency", type=str, default=None, help="Source currency id or name")
     parser.add_argument(
         "--source-currency",
@@ -229,7 +223,6 @@ def main() -> None:
             source_currency=args.source_currency or args.from_currency,
             recommend_min_change=args.recommend_min_change,
             recommend_min_units=args.recommend_min_units,
-            holdings_file=args.holdings_file,
         )
         if not response.ok and response.error and response.error_stage == "fetch":
             print(response.error)

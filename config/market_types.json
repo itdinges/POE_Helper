@@ -1,25 +1,77 @@
 {
-  "default_types": [
-    "Currency",
-    "Fragments",
-    "Lineage Gems",
-    "Soul Cores",
-    "Idols",
-    "Runes",
-    "Liquid Emotions",
-    "Catalyst",
-    "Essences"
-  ],
-  "optional_types": [
-    "Waystones",
-    "Tablets",
-    "Gems",
-    "Maps"
+  "items": [
+    {
+      "display": "Currency",
+      "fetch": "Currency",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Fragments",
+      "fetch": "Fragments",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Lineage Gems",
+      "fetch": "LineageSupportGems",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Soul Cores",
+      "fetch": "SoulCores",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Idols",
+      "fetch": "Idols",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Runes",
+      "fetch": "Runes",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Abyssal Bones",
+      "fetch": "Abyss",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Omens",
+      "fetch": "Ritual",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Liquid Emotions",
+      "fetch": "Delirium",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Catalyst",
+      "fetch": "Breach",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Essences",
+      "fetch": "Essences",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    },
+    {
+      "display": "Uncut Gems",
+      "fetch": "UncutGems",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+    }
   ],
   "progression_types": [
-    "Waystones",
-    "Tablets"
+    {
+      "display": "Unique Tablets",
+      "fetch": "UniqueTablets",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/stash/current/item/overview"
+    },
+    {
+      "display": "Precursor Tablets",
+      "fetch": "PrecursorTablets",
+      "fetch_url": "https://poe.ninja/poe2/api/economy/stash/current/item/overview"
+    }
   ],
-  "equipment_types": [],
   "disabled_types": []
 }

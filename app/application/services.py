@@ -16,6 +16,8 @@ from app.contracts.responses import (
     FlipSimulationView,
     MarketItemHistoryPointView,
     MarketItemHistoryView,
+    HoldingItemView,
+    HoldingsView,
     MarketRowView,
     MarketSnapshotView,
     MarketWorkflowResponse,
@@ -24,10 +26,16 @@ from app.contracts.responses import (
     VendorOpportunityView,
 )
 from app.domain.filter_profiles import build_score_profile_rules
-from app.domain.market_types import MarketTypeConfig, load_market_type_config
+from app.domain.market_types import (
+    EXCHANGE_OVERVIEW_URL,
+    MarketTypeConfig,
+    MarketTypeEntry,
+    STASH_ITEM_OVERVIEW_URL,
+    load_market_type_config,
+)
 from app.domain.scoring import MarketItemScore
 from app.filter_manager import FilterManager
-from app.infrastructure.market_store import MarketItemStatsRecord, SQLiteMarketStore
+from app.infrastructure.market_store import HoldingRecord, MarketItemStatsRecord, SQLiteMarketStore
 from app.market import (
     MarketClient,
     build_currency_recommendations,
@@ -49,19 +57,38 @@ MAX_MARKET_SNAPSHOT_AGE = timedelta(hours=1)
 POE_CDN_BASE_URL = "https://web.poecdn.com"
 
 
-def _resolve_market_types(market_type: str, config: MarketTypeConfig) -> list[str]:
+def _resolve_market_types(market_type: str, config: MarketTypeConfig) -> list[MarketTypeEntry]:
     normalized = market_type.strip()
     if not normalized:
         return []
 
     if normalized.lower() == "all":
-        return [item for item in config.default_types if item not in config.disabled_types]
+        return [entry for entry in config.entries() if entry.category == "items" and entry.enabled]
 
     if "," in normalized:
         requested_types = [item.strip() for item in normalized.split(",") if item.strip()]
-        return list(dict.fromkeys(requested_types))
+    else:
+        requested_types = [normalized]
 
-    return [normalized]
+    resolved: list[MarketTypeEntry] = []
+    seen: set[str] = set()
+    for requested in requested_types:
+        entry = config.find_entry(requested)
+        if entry is None:
+            entry = MarketTypeEntry(
+                category="custom",
+                name=requested,
+                fetch_name=requested,
+                fetch_url=EXCHANGE_OVERVIEW_URL,
+                enabled=True,
+            )
+        if not entry.enabled:
+            continue
+        if entry.name in seen:
+            continue
+        seen.add(entry.name)
+        resolved.append(entry)
+    return resolved
 
 
 def _snapshot_slug(value: str) -> str:
@@ -70,6 +97,15 @@ def _snapshot_slug(value: str) -> str:
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
     return cleaned.strip("-") or "unknown"
+
+
+def _source_scope_for_url(fetch_url: str) -> str:
+    normalized = fetch_url.strip().lower()
+    if normalized == EXCHANGE_OVERVIEW_URL.lower():
+        return "exchange"
+    if normalized == STASH_ITEM_OVERVIEW_URL.lower():
+        return "stash-item"
+    return _snapshot_slug(fetch_url)
 
 
 def _parse_snapshot_timestamp(file_path: Path) -> datetime | None:
@@ -381,77 +417,114 @@ def read_market_types(config_path: str = MARKET_CONFIG_PATH) -> list[str]:
     return [item for item in config.all_types if item not in config.disabled_types]
 
 
-def load_holdings(holdings_file: str | None) -> dict[str, float] | None:
-    if not holdings_file:
-        return None
-
-    path = Path(holdings_file).expanduser().resolve()
-    raw = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(raw, dict):
-        raise ValueError("Holdings file must be a JSON object")
-
-    if isinstance(raw.get("items"), list):
-        return _parse_stash_items_to_holdings(raw)
-
-    parsed: dict[str, float] = {}
-    for key, value in raw.items():
-        if not isinstance(key, str) or not key.strip():
-            continue
-        amount = _parse_positive_float(value)
-        if amount is None:
-            continue
-        normalized_key = key.strip()
-        parsed[normalized_key] = parsed.get(normalized_key, 0.0) + amount
-    return parsed
-
-
-def _parse_stash_items_to_holdings(payload: dict) -> dict[str, float]:
-    items = payload.get("items")
-    if not isinstance(items, list):
-        raise ValueError("Stash payload must contain an 'items' list")
-
-    parsed: dict[str, float] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-
-        item_key = _extract_stash_item_key(item)
-        if not item_key:
-            continue
-
-        amount = _extract_stash_item_amount(item)
-        if amount is None:
-            continue
-
-        parsed[item_key] = parsed.get(item_key, 0.0) + amount
-
-    return parsed
-
-
-def _extract_stash_item_key(item: dict) -> str | None:
-    for key in ("id", "typeLine", "baseType", "name"):
-        value = item.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _extract_stash_item_amount(item: dict) -> float | None:
-    for key in ("stackSize", "stack_size", "amount", "quantity"):
-        amount = _parse_positive_float(item.get(key))
-        if amount is not None:
-            return amount
-    return 1.0
-
-
-def _parse_positive_float(value: object) -> float | None:
+def _parse_non_negative_float(value: object) -> float | None:
     try:
         amount = float(value)
     except (TypeError, ValueError):
         return None
-    if amount <= 0:
+    if amount < 0:
         return None
     return amount
+
+
+def _build_holdings_map_from_store(store: SQLiteMarketStore, league: str, market_types: list[MarketTypeEntry]) -> dict[str, float]:
+    if not hasattr(store, "get_holdings"):
+        return {}
+
+    merged: dict[str, float] = {}
+    for scope_type in market_types:
+        for row in store.get_holdings(league, scope_type.name):
+            if row.amount <= 0:
+                continue
+            merged[row.item_id] = merged.get(row.item_id, 0.0) + row.amount
+            merged[row.item_name] = merged.get(row.item_name, 0.0) + row.amount
+    return merged
+
+
+def read_holdings(*, league: str, market_type: str, db_path: str = MARKET_DB_PATH) -> HoldingsView:
+    with SQLiteMarketStore(db_path=db_path) as store:
+        items_with_stats = store.get_market_item_holdings(league, market_type)
+        if items_with_stats:
+            return HoldingsView(
+                ok=True,
+                league=league,
+                market_type=market_type,
+                items=[
+                    HoldingItemView(
+                        league=row.league,
+                        market_type=row.market_type,
+                        item_id=row.item_id,
+                        item_name=row.item_name,
+                        amount=row.amount,
+                        latest_chaos_value=row.latest_chaos_value,
+                        icon_url=_resolve_image_url(row.image_path),
+                        updated_at=row.updated_at.isoformat() if row.updated_at is not None else None,
+                    )
+                    for row in items_with_stats
+                ],
+            )
+
+        plain_holdings = store.get_holdings(league, market_type)
+        return HoldingsView(
+            ok=True,
+            league=league,
+            market_type=market_type,
+            items=[
+                HoldingItemView(
+                    league=row.league,
+                    market_type=row.market_type,
+                    item_id=row.item_id,
+                    item_name=row.item_name,
+                    amount=row.amount,
+                    latest_chaos_value=None,
+                    icon_url=None,
+                    updated_at=row.updated_at.isoformat(),
+                )
+                for row in plain_holdings
+            ],
+        )
+
+
+def save_holdings(
+    *,
+    league: str,
+    market_type: str,
+    items: list[dict[str, object]],
+    db_path: str = MARKET_DB_PATH,
+) -> HoldingsView:
+    now = datetime.now(UTC).replace(microsecond=0)
+    parsed: list[HoldingRecord] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("item_id", "")).strip()
+        item_name = str(item.get("item_name", "")).strip()
+        amount = _parse_non_negative_float(item.get("amount"))
+        if not item_id or not item_name or amount is None:
+            continue
+        parsed.append(
+            HoldingRecord(
+                league=league,
+                market_type=market_type,
+                item_id=item_id,
+                item_name=item_name,
+                amount=amount,
+                updated_at=now,
+            )
+        )
+
+    if not parsed:
+        return HoldingsView(
+            ok=False,
+            league=league,
+            market_type=market_type,
+            error="No valid holdings items were provided.",
+        )
+
+    with SQLiteMarketStore(db_path=db_path) as store:
+        store.upsert_holdings(parsed)
+
+    return read_holdings(league=league, market_type=market_type, db_path=db_path)
 
 
 def execute_market_workflow(
@@ -472,11 +545,10 @@ def execute_market_workflow(
     source_currency: str | None = None,
     recommend_min_change: float = 0.5,
     recommend_min_units: float = 1.0,
-    holdings_file: str | None = None,
 ) -> MarketWorkflowResponse:
     config = load_market_type_config(MARKET_CONFIG_PATH)
-    fetch_types = _resolve_market_types(market_type, config)
-    if not fetch_types:
+    resolved_types = _resolve_market_types(market_type, config)
+    if not resolved_types:
         return MarketWorkflowResponse(ok=False, error="No market types were requested.", error_stage="fetch")
 
     top_entries: list[TopEntry] = []
@@ -491,18 +563,18 @@ def execute_market_workflow(
     market_data_fetched_at: str | None = None
     market_data_source: str | None = None
 
-    try:
-        holdings = load_holdings(holdings_file)
-    except Exception as exc:
-        return MarketWorkflowResponse(ok=False, error=f"Holdings file load failed: {exc}", error_stage="recommend")
-
     with SQLiteMarketStore(db_path=MARKET_DB_PATH) as store:
         store.sync_market_types(config)
 
-        for configured_type in fetch_types:
+        for configured_entry in resolved_types:
+            configured_display_type = configured_entry.name
+            configured_fetch_type = configured_entry.fetch_name
+            configured_fetch_url = configured_entry.fetch_url
+            snapshot_cache_key = f"{configured_fetch_type}_{_source_scope_for_url(configured_fetch_url)}"
             try:
                 client = MarketClient()
-                latest_snapshot = _find_latest_snapshot(market_out_dir, league, configured_type)
+                client.base_url = configured_fetch_url
+                latest_snapshot = _find_latest_snapshot(market_out_dir, league, snapshot_cache_key)
                 now_utc = datetime.now(UTC)
                 use_cached_snapshot = False
                 payload: dict
@@ -515,39 +587,39 @@ def execute_market_workflow(
                         snapshot_path = snapshot_candidate
                         use_cached_snapshot = True
                     else:
-                        payload = client.fetch_overview(league, configured_type)
-                        snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
+                        payload = client.fetch_overview(league, configured_fetch_type)
+                        snapshot_path = client.save_snapshot(payload, market_out_dir, league, snapshot_cache_key)
                 else:
-                    payload = client.fetch_overview(league, configured_type)
-                    snapshot_path = client.save_snapshot(payload, market_out_dir, league, configured_type)
+                    payload = client.fetch_overview(league, configured_fetch_type)
+                    snapshot_path = client.save_snapshot(payload, market_out_dir, league, snapshot_cache_key)
 
-                latest_rows = store.get_latest_market_rows(league, configured_type)
+                latest_rows = store.get_latest_market_rows(league, configured_display_type)
                 if latest_rows:
                     previous_prices = {row.item_id: row.chaos_value for row in latest_rows}
-                    previous_prices_by_type[configured_type] = previous_prices
+                    previous_prices_by_type[configured_display_type] = previous_prices
                 else:
-                    previous_prices_by_type[configured_type] = {}
+                    previous_prices_by_type[configured_display_type] = {}
 
-                payload_by_type[configured_type] = payload
+                payload_by_type[configured_display_type] = payload
 
                 needs_row_refresh = not latest_rows or not use_cached_snapshot or any(row.image_path is None for row in latest_rows)
                 if needs_row_refresh:
                     rows = normalize_market_rows_for_store(
                         payload,
                         league=league,
-                        market_type=configured_type,
+                        market_type=configured_display_type,
                         fetched_at=datetime.now(),
                     )
                     store.save_market_rows(rows)
 
-                store.refresh_market_item_stats(league, configured_type)
-                stats_rows = store.get_market_item_stats(league, configured_type)
-                trend_lookup_by_type[configured_type] = _build_trend_signal_lookup(stats_rows)
+                store.refresh_market_item_stats(league, configured_display_type)
+                stats_rows = store.get_market_item_stats(league, configured_display_type)
+                trend_lookup_by_type[configured_display_type] = _build_trend_signal_lookup(stats_rows)
 
-                if configured_type.lower() == "currency":
+                if configured_display_type.lower() == "currency":
                     trend_highlights = _build_reversal_highlights(
                         stats_rows,
-                        market_type=configured_type,
+                        market_type=configured_display_type,
                         limit=market_limit,
                     )
 
@@ -563,12 +635,14 @@ def execute_market_workflow(
                     for name, chaos_value in summarize_market(payload, limit=market_limit)
                 )
             except Exception as exc:  # pragma: no cover - network/runtime errors
-                log.exception("Market fetch failed for configured type %s", configured_type)
+                log.exception("Market fetch failed for configured type %s", configured_display_type)
                 return MarketWorkflowResponse(
                     ok=False,
-                    error=f"Market fetch failed for {configured_type}: {exc}",
+                    error=f"Market fetch failed for {configured_display_type}: {exc}",
                     error_stage="fetch",
                 )
+
+        holdings = _build_holdings_map_from_store(store, league, resolved_types)
 
     if primary_payload is None:
         return MarketWorkflowResponse(ok=False, error="No market payloads were fetched.", error_stage="fetch")
@@ -646,7 +720,8 @@ def execute_market_workflow(
 
     if recommend:
         source_currency = source_currency or "exalt"
-        currency_type = next((item for item in fetch_types if item.lower() == "currency"), fetch_types[0])
+        display_types = [entry.name for entry in resolved_types]
+        currency_type = next((item for item in display_types if item.lower() == "currency"), display_types[0])
         reference_payload = payload_by_type.get(currency_type, primary_payload)
         reference_previous_prices = previous_prices_by_type.get(currency_type, {})
         source_price_override = resolve_currency_price(reference_payload, source_currency) if reference_payload else None
@@ -656,7 +731,7 @@ def execute_market_workflow(
 
         all_recommendations: list[CurrencyRecommendationView] = []
         recommendation_errors: list[str] = []
-        for configured_type in fetch_types:
+        for configured_type in display_types:
             payload = payload_by_type.get(configured_type)
             if payload is None:
                 continue

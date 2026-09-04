@@ -139,6 +139,27 @@ class MarketItemHistoryView:
 
 
 @dataclass
+class HoldingItemView:
+    league: str
+    market_type: str
+    item_id: str
+    item_name: str
+    amount: float
+    latest_chaos_value: float | None = None
+    icon_url: str | None = None
+    updated_at: str | None = None
+
+
+@dataclass
+class HoldingsView:
+    ok: bool
+    league: str
+    market_type: str
+    items: list[HoldingItemView] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
 class FlipSimulationView:
     route_name: str
     start_currency: str

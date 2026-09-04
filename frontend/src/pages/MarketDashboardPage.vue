@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import {
+  getHoldings,
   getHealth,
   getItemHistory,
   getLatestMarket,
   getMarketTypes,
   refreshMarket,
+  saveHoldings,
   type ApiHealth,
+  type HoldingItem,
+  type HoldingsResponse,
   type MarketHistory,
   type MarketSnapshot,
   type MarketTypeResponse,
 } from '../api'
 import DashboardHero from '../components/dashboard/DashboardHero.vue'
 import DashboardSummary from '../components/dashboard/DashboardSummary.vue'
+import HoldingsEditor from '../components/dashboard/HoldingsEditor.vue'
 import MarketSnapshotTable from '../components/dashboard/MarketSnapshotTable.vue'
 import TrendHighlights from '../components/dashboard/TrendHighlights.vue'
 
@@ -23,9 +28,13 @@ const marketLimit = ref(12)
 const health = ref<ApiHealth | null>(null)
 const snapshot = ref<MarketSnapshot | null>(null)
 const history = ref<MarketHistory | null>(null)
+const holdings = ref<HoldingItem[]>([])
 const loading = ref(false)
 const refreshing = ref(false)
+const holdingsLoading = ref(false)
+const holdingsSaving = ref(false)
 const error = ref<string | null>(null)
+const holdingsError = ref<string | null>(null)
 const backendUnavailable = ref(false)
 
 const selectedRowCount = computed(() => snapshot.value?.item_count ?? 0)
@@ -93,6 +102,33 @@ async function loadSnapshot() {
   }
 }
 
+async function loadHoldings() {
+  holdingsLoading.value = true
+  holdingsError.value = null
+  try {
+    const response: HoldingsResponse = await getHoldings(league.value, selectedMarketType.value)
+    holdings.value = response.items
+  } catch (caught) {
+    holdings.value = []
+    holdingsError.value = caught instanceof Error ? caught.message : 'Failed to load holdings.'
+  } finally {
+    holdingsLoading.value = false
+  }
+}
+
+async function submitHoldings(items: Array<{ item_id: string; item_name: string; amount: number }>) {
+  holdingsSaving.value = true
+  holdingsError.value = null
+  try {
+    const response = await saveHoldings(league.value, selectedMarketType.value, items)
+    holdings.value = response.items
+  } catch (caught) {
+    holdingsError.value = caught instanceof Error ? caught.message : 'Failed to save holdings.'
+  } finally {
+    holdingsSaving.value = false
+  }
+}
+
 async function loadHistory(itemId: string) {
   try {
     history.value = await getItemHistory(league.value, selectedMarketType.value, itemId)
@@ -105,8 +141,8 @@ async function reloadAfterRefresh() {
   refreshing.value = true
   error.value = null
   try {
-    await refreshMarket(league.value, selectedMarketType.value, marketLimit.value)
-    await loadSnapshot()
+    await refreshMarket(league.value, 'all', marketLimit.value, false)
+    await Promise.all([loadSnapshot(), loadHoldings()])
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Market refresh failed.'
   } finally {
@@ -116,11 +152,11 @@ async function reloadAfterRefresh() {
 
 onMounted(async () => {
   await Promise.all([loadHealth(), loadMarketTypes()])
-  await loadSnapshot()
+  await Promise.all([loadSnapshot(), loadHoldings()])
 })
 
 watch(selectedMarketType, async () => {
-  await loadSnapshot()
+  await Promise.all([loadSnapshot(), loadHoldings()])
 })
 </script>
 
@@ -165,6 +201,16 @@ watch(selectedMarketType, async () => {
         :trend-tone="trendTone"
         :show-icon="showIcon"
         :history="history"
+      />
+
+      <HoldingsEditor
+        class="holdings-slot"
+        :items="holdings"
+        :loading="holdingsLoading"
+        :saving="holdingsSaving"
+        :error="holdingsError"
+        @reload="loadHoldings"
+        @save="submitHoldings"
       />
     </main>
   </div>

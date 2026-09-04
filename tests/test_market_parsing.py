@@ -46,6 +46,35 @@ def test_parse_market_rows_and_summarize_from_fixture() -> None:
     assert top[0][1] == 10.0
 
 
+def test_parse_market_rows_uses_top_level_items_for_images() -> None:
+    payload = {
+        "core": {
+            "items": [
+                {"id": "divine", "name": "Divine Orb", "image": "/gen/image/core-divine.png"},
+            ],
+            "rates": {"chaos": 10.0},
+        },
+        "lines": [
+            {"id": "alch", "primaryValue": 0.1},
+        ],
+        "items": [
+            {
+                "id": "alch",
+                "name": "Orb of Alchemy",
+                "image": "/gen/image/top-alch.png",
+                "detailsId": "orb-of-alchemy",
+            }
+        ],
+    }
+
+    rows = parse_market_rows(payload)
+
+    assert len(rows) == 1
+    assert rows[0].id == "alch"
+    assert rows[0].name == "Orb of Alchemy"
+    assert rows[0].image_path == "/gen/image/top-alch.png"
+
+
 def test_convert_currency_amount_and_missing_currency_error() -> None:
     payload = _load_fixture()
 

@@ -8,7 +8,7 @@ POE Helper is a local-first Path of Exile 2 assistant focused on filter workflow
 
 ## Current Milestone
 
-Config-driven market fetch support plus market-aware, score-driven filter generation for POE2 helpers.
+Config-driven market fetch support, market-aware score-driven filter generation, and the first FastAPI web API slice for POE2 helpers.
 
 Implemented:
 
@@ -30,6 +30,9 @@ Implemented:
 - multi-step vendor route simulation with chaos PnL and ROI
 - runtime observability with file logs plus tail/follow log commands
 - helper for inspecting the configured catalog and SQLite population state
+- FastAPI web API with health, latest snapshot, item history, and refresh endpoints
+- market type catalog endpoint for the frontend dashboard
+- initial Vue dashboard shell with league/type selection, snapshot table, and item history panel
 
 ## Main CLI Flows
 
@@ -87,10 +90,9 @@ Out of scope:
 
 ## Next Priorities
 
-1. Add dry-run mode and profile listing command.
-2. Move profile rules to config file for easier editing.
-3. Expand unit and integration tests around lifecycle and data-quality edge cases.
-4. Prepare adapter split for optional authenticated inventory module.
+1. Add holdings and settings endpoints to complete the first operator loop.
+2. Expand unit and integration tests around lifecycle and data-quality edge cases.
+3. Prepare adapter split for optional authenticated inventory module.
 
 ## Testing Status
 

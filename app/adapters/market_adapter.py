@@ -22,6 +22,7 @@ def normalize_market_rows_for_store(
                 market_type=market_type,
                 item_id=row.id,
                 item_name=row.name,
+                image_path=row.image_path,
                 chaos_value=float(row.chaos_value),
                 primary_value=float(row.primary_value),
                 fetched_at=fetched_at,

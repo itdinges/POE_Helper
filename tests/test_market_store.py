@@ -101,6 +101,7 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             market_type="Currency",
             item_id="divine",
             item_name="Divine Orb",
+            image_path="/gen/image/divine.png",
             chaos_value=120.0,
             primary_value=120.0,
             fetched_at=now - timedelta(hours=3),
@@ -110,6 +111,7 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             market_type="Currency",
             item_id="divine",
             item_name="Divine Orb",
+            image_path="/gen/image/divine.png",
             chaos_value=90.0,
             primary_value=90.0,
             fetched_at=now - timedelta(hours=2),
@@ -119,6 +121,7 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
             market_type="Currency",
             item_id="divine",
             item_name="Divine Orb",
+            image_path="/gen/image/divine.png",
             chaos_value=110.0,
             primary_value=110.0,
             fetched_at=now,
@@ -137,6 +140,7 @@ def test_market_store_refreshes_item_stats_with_trend_windows(tmp_path) -> None:
     assert stats[0].trend_12h_percent is None
     assert stats[0].trend_24h_percent is None
     assert stats[0].short_term_reversal == "none"
+    assert stats[0].image_path == "/gen/image/divine.png"
 
 
 def test_market_store_detects_bearish_reversal_when_24h_up_but_1h_2h_down(tmp_path) -> None:

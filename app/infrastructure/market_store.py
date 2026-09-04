@@ -19,6 +19,7 @@ class MarketRowRecord:
     primary_value: float
     fetched_at: datetime
     vendor_value: float | None = None
+    image_path: str | None = None
 
 
 @dataclass(slots=True)
@@ -35,6 +36,7 @@ class MarketItemStatsRecord:
     item_id: str
     item_name: str
     latest_chaos_value: float
+    image_path: str | None = None
     trend_1h_percent: float | None = None
     trend_2h_percent: float | None = None
     trend_12h_percent: float | None = None
@@ -77,6 +79,7 @@ class SQLiteMarketStore:
                 market_type TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 item_name TEXT NOT NULL,
+                image_path TEXT,
                 chaos_value REAL NOT NULL,
                 primary_value REAL NOT NULL,
                 vendor_value REAL,
@@ -87,6 +90,7 @@ class SQLiteMarketStore:
             )
             """
         )
+        self._ensure_market_rows_schema()
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS market_type_catalog (
@@ -109,6 +113,7 @@ class SQLiteMarketStore:
                 market_type TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 item_name TEXT NOT NULL,
+                image_path TEXT,
                 latest_chaos_value REAL NOT NULL,
                 trend_1h_percent REAL,
                 trend_2h_percent REAL,
@@ -129,6 +134,18 @@ class SQLiteMarketStore:
         )
         self._conn.commit()
 
+    def _ensure_market_rows_schema(self) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database connection is closed")
+
+        existing_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(market_rows)").fetchall()
+        }
+
+        if "image_path" not in existing_columns:
+            self._conn.execute("ALTER TABLE market_rows ADD COLUMN image_path TEXT")
+
     def _ensure_market_item_stats_schema(self) -> None:
         if self._conn is None:
             raise RuntimeError("Database connection is closed")
@@ -139,6 +156,7 @@ class SQLiteMarketStore:
         }
 
         required_columns = {
+            "image_path": "TEXT",
             "trend_1h_percent": "REAL",
             "trend_2h_percent": "REAL",
             "trend_12h_percent": "REAL",
@@ -216,8 +234,8 @@ class SQLiteMarketStore:
         self._conn.executemany(
             """
             INSERT OR REPLACE INTO market_rows (
-                league, market_type, item_id, item_name, chaos_value, primary_value, vendor_value, fetched_at, snapshot_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                league, market_type, item_id, item_name, image_path, chaos_value, primary_value, vendor_value, fetched_at, snapshot_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -225,6 +243,7 @@ class SQLiteMarketStore:
                     row.market_type,
                     row.item_id,
                     row.item_name,
+                    row.image_path,
                     row.chaos_value,
                     row.primary_value,
                     row.vendor_value,
@@ -258,7 +277,7 @@ class SQLiteMarketStore:
 
         rows = self._conn.execute(
             """
-            SELECT item_id, item_name, chaos_value, fetched_at
+            SELECT item_id, item_name, image_path, chaos_value, fetched_at
             FROM market_rows
             WHERE league = ? AND market_type = ?
             ORDER BY item_id, fetched_at ASC
@@ -289,6 +308,7 @@ class SQLiteMarketStore:
             latest = history[-1]
             latest_value = float(latest["chaos_value"])
             latest_time = datetime.fromisoformat(latest["fetched_at"])
+            latest_image_path = latest["image_path"] if "image_path" in latest.keys() else None
             previous_value = float(history[-2]["chaos_value"]) if len(history) > 1 else None
             delta_chaos = (latest_value - previous_value) if previous_value is not None else None
             delta_percent = ((delta_chaos / previous_value) * 100.0) if previous_value and previous_value > 0 and delta_chaos is not None else None
@@ -320,6 +340,7 @@ class SQLiteMarketStore:
                     "market_type": market_type,
                     "item_id": item_id,
                     "item_name": str(latest["item_name"]),
+                    "image_path": latest_image_path,
                     "observations": len(history),
                     "latest_fetched_at": latest["fetched_at"],
                     "latest_chaos_value": latest_value,
@@ -349,6 +370,7 @@ class SQLiteMarketStore:
             "market_type",
             "item_id",
             "item_name",
+            "image_path",
             "observations",
             "latest_fetched_at",
             "latest_chaos_value",
@@ -403,6 +425,7 @@ class SQLiteMarketStore:
                     market_type=row["market_type"],
                     item_id=row["item_id"],
                     item_name=row["item_name"],
+                    image_path=row["image_path"] if "image_path" in row.keys() else None,
                     latest_chaos_value=float(row["latest_chaos_value"]),
                     trend_1h_percent=row["trend_1h_percent"],
                     trend_2h_percent=row["trend_2h_percent"],
@@ -495,6 +518,7 @@ class SQLiteMarketStore:
                 market_type=row["market_type"],
                 item_id=row["item_id"],
                 item_name=row["item_name"],
+                image_path=row["image_path"],
                 chaos_value=float(row["chaos_value"]),
                 primary_value=float(row["primary_value"]),
                 fetched_at=datetime.fromisoformat(row["fetched_at"]),
@@ -523,6 +547,7 @@ class SQLiteMarketStore:
                 market_type=row["market_type"],
                 item_id=row["item_id"],
                 item_name=row["item_name"],
+                image_path=row["image_path"],
                 chaos_value=float(row["chaos_value"]),
                 primary_value=float(row["primary_value"]),
                 fetched_at=datetime.fromisoformat(row["fetched_at"]),

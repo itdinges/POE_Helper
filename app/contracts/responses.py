@@ -93,6 +93,52 @@ class TrendSignalView:
 
 
 @dataclass
+class MarketRowView:
+    league: str
+    market_type: str
+    item_id: str
+    item_name: str
+    chaos_value: float
+    primary_value: float
+    fetched_at: str
+    vendor_value: float | None = None
+    icon_url: str | None = None
+
+
+@dataclass
+class MarketSnapshotView:
+    ok: bool
+    league: str
+    market_type: str
+    latest_fetched_at: str | None = None
+    item_count: int = 0
+    top_entries: list[TopEntry] = field(default_factory=list)
+    rows: list[MarketRowView] = field(default_factory=list)
+    trend_highlights: list[TrendSignalView] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
+class MarketItemHistoryPointView:
+    fetched_at: str
+    chaos_value: float
+    primary_value: float
+    vendor_value: float | None = None
+
+
+@dataclass
+class MarketItemHistoryView:
+    ok: bool
+    league: str
+    market_type: str
+    item_id: str
+    item_name: str | None = None
+    icon_url: str | None = None
+    points: list[MarketItemHistoryPointView] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
 class FlipSimulationView:
     route_name: str
     start_currency: str

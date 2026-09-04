@@ -14,6 +14,10 @@ from app.contracts.responses import (
     FilterInitResponse,
     FilterListResponse,
     FlipSimulationView,
+    MarketItemHistoryPointView,
+    MarketItemHistoryView,
+    MarketRowView,
+    MarketSnapshotView,
     MarketWorkflowResponse,
     TrendSignalView,
     TopEntry,
@@ -42,6 +46,7 @@ log = logging.getLogger("poe-helper.application")
 MARKET_CONFIG_PATH = "config/market_types.json"
 MARKET_DB_PATH = "data/market/poe_market.db"
 MAX_MARKET_SNAPSHOT_AGE = timedelta(hours=1)
+POE_CDN_BASE_URL = "https://web.poecdn.com"
 
 
 def _resolve_market_types(market_type: str, config: MarketTypeConfig) -> list[str]:
@@ -275,6 +280,107 @@ def _build_reversal_highlights(
     ]
 
 
+def _resolve_image_url(image_path: str | None) -> str | None:
+    if not image_path:
+        return None
+    if image_path.startswith("http://") or image_path.startswith("https://"):
+        return image_path
+    if image_path.startswith("/"):
+        return f"{POE_CDN_BASE_URL}{image_path}"
+    return f"{POE_CDN_BASE_URL}/{image_path.lstrip('/')}"
+
+
+def read_market_snapshot(
+    *,
+    league: str,
+    market_type: str,
+    db_path: str = MARKET_DB_PATH,
+    limit: int = 10,
+) -> MarketSnapshotView:
+    with SQLiteMarketStore(db_path=db_path) as store:
+        latest_rows = store.get_latest_market_rows(league, market_type)
+        if not latest_rows:
+            return MarketSnapshotView(
+                ok=False,
+                league=league,
+                market_type=market_type,
+                error="No market rows found for the requested league and market type.",
+            )
+
+        stats_rows = store.get_market_item_stats(league, market_type)
+        latest_fetched_at = max(row.fetched_at for row in latest_rows).isoformat()
+        ordered_rows = sorted(latest_rows, key=lambda row: row.chaos_value, reverse=True)
+        top_entries = [TopEntry(name=row.item_name, chaos_value=row.chaos_value) for row in ordered_rows[: max(1, limit)]]
+        trend_highlights = _build_reversal_highlights(stats_rows, market_type=market_type, limit=limit)
+
+        return MarketSnapshotView(
+            ok=True,
+            league=league,
+            market_type=market_type,
+            latest_fetched_at=latest_fetched_at,
+            item_count=len(latest_rows),
+            top_entries=top_entries,
+            rows=[
+                MarketRowView(
+                    league=row.league,
+                    market_type=row.market_type,
+                    item_id=row.item_id,
+                    item_name=row.item_name,
+                    icon_url=_resolve_image_url(row.image_path),
+                    chaos_value=row.chaos_value,
+                    primary_value=row.primary_value,
+                    fetched_at=row.fetched_at.isoformat(),
+                    vendor_value=row.vendor_value,
+                )
+                for row in latest_rows
+            ],
+            trend_highlights=trend_highlights,
+        )
+
+
+def read_market_item_history(
+    *,
+    league: str,
+    market_type: str,
+    item_id: str,
+    db_path: str = MARKET_DB_PATH,
+) -> MarketItemHistoryView:
+    with SQLiteMarketStore(db_path=db_path) as store:
+        history_rows = store.get_item_history(league, market_type, item_id)
+        if not history_rows:
+            return MarketItemHistoryView(
+                ok=False,
+                league=league,
+                market_type=market_type,
+                item_id=item_id,
+                error="No history found for the requested item.",
+            )
+
+        latest_row = history_rows[-1]
+        return MarketItemHistoryView(
+            ok=True,
+            league=league,
+            market_type=market_type,
+            item_id=item_id,
+            item_name=latest_row.item_name,
+            icon_url=_resolve_image_url(latest_row.image_path),
+            points=[
+                MarketItemHistoryPointView(
+                    fetched_at=row.fetched_at.isoformat(),
+                    chaos_value=row.chaos_value,
+                    primary_value=row.primary_value,
+                    vendor_value=row.vendor_value,
+                )
+                for row in history_rows
+            ],
+        )
+
+
+def read_market_types(config_path: str = MARKET_CONFIG_PATH) -> list[str]:
+    config = load_market_type_config(config_path)
+    return [item for item in config.all_types if item not in config.disabled_types]
+
+
 def load_holdings(holdings_file: str | None) -> dict[str, float] | None:
     if not holdings_file:
         return None
@@ -424,7 +530,8 @@ def execute_market_workflow(
 
                 payload_by_type[configured_type] = payload
 
-                if not latest_rows or not use_cached_snapshot:
+                needs_row_refresh = not latest_rows or not use_cached_snapshot or any(row.image_path is None for row in latest_rows)
+                if needs_row_refresh:
                     rows = normalize_market_rows_for_store(
                         payload,
                         league=league,

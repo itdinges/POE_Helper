@@ -177,6 +177,10 @@ def parse_args() -> argparse.Namespace:
         default="data/logs/poe_helper.log",
         help="File path for backend log output",
     )
+    parser.add_argument("--api", action="store_true", help="Start the FastAPI web API server")
+    parser.add_argument("--api-host", type=str, default="127.0.0.1", help="Host address for the API server")
+    parser.add_argument("--api-port", type=int, default=8000, help="Port for the API server")
+    parser.add_argument("--api-reload", action="store_true", help="Enable auto-reload for API development")
     return parser.parse_args()
 
 
@@ -184,6 +188,22 @@ def main() -> None:
     args = parse_args()
     log_file_path = configure_logging(log_level=args.log_level, log_file=args.log_file)
     log.info("Command started")
+
+    if args.api:
+        log.info("API server requested", extra={"host": args.api_host, "port": args.api_port})
+        try:
+            import uvicorn
+        except ImportError:
+            print("FastAPI server dependencies are missing. Install requirements.txt first.")
+            return
+
+        uvicorn.run(
+            "app.web.api:app",
+            host=args.api_host,
+            port=args.api_port,
+            reload=args.api_reload,
+        )
+        return
 
     if args.tail_logs or args.follow_logs:
         log.info("Log tail requested")

@@ -14,4 +14,4 @@ if (-not (Test-Path $python)) {
     throw "Python executable not found: $python"
 }
 
-& $python .\main.py --market --league $League --market-type "Currency,Fragments" --market-out-dir $OutputDir
+& $python .\main.py --market --league $League --market-type "all" --market-out-dir $OutputDir

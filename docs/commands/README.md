@@ -36,6 +36,37 @@ Other market helpers:
 python main.py --market --league "Runes of Aldur" --market-type Currency --recommend --holdings-file config/holdings.example.json
 ```
 
+Web/API startup:
+
+```bash
+python main.py --api
+python main.py --api --api-reload
+```
+
+Available API endpoints for the first slice:
+
+- `GET /api/health`
+- `GET /api/market/types`
+- `GET /api/market/latest`
+- `GET /api/market/history/{item_id}`
+- `POST /api/market/refresh`
+
+Frontend development:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Web POC launcher:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start_web_poc.ps1
+```
+
+This starts the FastAPI backend on port `8000` and the Vue dev server on port `5173` in separate PowerShell windows.
+
 Manual holdings file format example:
 
 ```json

@@ -29,6 +29,7 @@ class MarketRow:
     name: str
     chaos_value: float
     primary_value: float
+    image_path: str | None = None
 
 
 @dataclass
@@ -458,6 +459,7 @@ def build_price_lookup(rows: list[MarketRow]) -> dict[str, float]:
 
 def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
     name_lookup = _build_name_lookup(payload)
+    image_lookup = _build_image_lookup(payload)
     chaos_per_primary = _extract_chaos_per_primary(payload)
 
     rows: list[MarketRow] = []
@@ -483,6 +485,7 @@ def parse_market_rows(payload: dict[str, Any]) -> list[MarketRow]:
             MarketRow(
                 id=row_id,
                 name=name,
+                image_path=image_lookup.get(row_id),
                 chaos_value=chaos_value,
                 primary_value=primary_value,
             )
@@ -501,23 +504,64 @@ def _extract_name(line: dict[str, Any]) -> str | None:
 
 
 def _build_name_lookup(payload: dict[str, Any]) -> dict[str, str]:
-    core = payload.get("core")
-    if not isinstance(core, dict):
-        return {}
-
-    items = core.get("items")
-    if not isinstance(items, list):
-        return {}
-
     lookup: dict[str, str] = {}
-    for item in items:
+    for item in _iter_item_catalog_entries(payload):
         if not isinstance(item, dict):
             continue
-        row_id = item.get("id")
+
         row_name = item.get("name")
-        if isinstance(row_id, str) and isinstance(row_name, str) and row_id.strip() and row_name.strip():
-            lookup[row_id.strip()] = row_name.strip()
+        if not (isinstance(row_name, str) and row_name.strip()):
+            continue
+
+        for key in _item_catalog_keys(item):
+            lookup[key] = row_name.strip()
     return lookup
+
+
+def _build_image_lookup(payload: dict[str, Any]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for item in _iter_item_catalog_entries(payload):
+        if not isinstance(item, dict):
+            continue
+
+        image_path = item.get("image")
+        if not (isinstance(image_path, str) and image_path.strip()):
+            continue
+
+        for key in _item_catalog_keys(item):
+            lookup[key] = image_path.strip()
+    return lookup
+
+
+def _iter_item_catalog_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    combined: list[dict[str, Any]] = []
+
+    core = payload.get("core")
+    if isinstance(core, dict):
+        core_items = core.get("items")
+        if isinstance(core_items, list):
+            combined.extend(item for item in core_items if isinstance(item, dict))
+
+    # The exchange response also includes a top-level `items` catalog with full market coverage.
+    top_items = payload.get("items")
+    if isinstance(top_items, list):
+        combined.extend(item for item in top_items if isinstance(item, dict))
+
+    return combined
+
+
+def _item_catalog_keys(item: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+
+    row_id = item.get("id")
+    if isinstance(row_id, str) and row_id.strip():
+        keys.append(row_id.strip())
+
+    details_id = item.get("detailsId")
+    if isinstance(details_id, str) and details_id.strip():
+        keys.append(details_id.strip())
+
+    return keys
 
 
 def _extract_chaos_per_primary(payload: dict[str, Any]) -> float | None:
